@@ -3,74 +3,110 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Knoxville Pole Map</title>
+<title>Open Pole Locator Map</title>
 <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css">
 <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700&family=Source+Sans+3:wght@400;600&family=JetBrains+Mono:wght@400;500&display=swap">
 <style>
-/* Layout: full-screen map with a left panel (bottom sheet on phones). Look follows the Geoenergy edition of GeoLibre (MIT, Qiusheng Wu). */
-:root { --panel: #121821; --panel2: #1a2230; --fg: #e4e9ef; --muted: #98a4b3; --rule: #2a3442; --ours: #f2a83b; --ours-lo: #f6d28c; --mly: #7fb2f0;
+/* Layout: full-screen map with a scrolling left panel (bottom sheet on phones). Look follows the Geoenergy edition of GeoLibre (MIT, Qiusheng Wu). */
+:root { --panel: #121821; --panel2: #1a2230; --fg: #e4e9ef; --muted: #98a4b3; --rule: #2a3442;
+  --ours: #f2a83b; --mly: #6fa8f0; --truth: #5cc98a; --box: #f2a83b; --bad: #e37a63;
   --display: "Archivo", "Helvetica Neue", Arial, sans-serif; --body: "Source Sans 3", "Segoe UI", system-ui, sans-serif; --mono: "JetBrains Mono", Consolas, monospace; color-scheme: dark; }
 html, body { height: 100%; margin: 0; background: var(--panel); color: var(--fg); font: 15px/1.5 var(--body); }
-#map { position: absolute; inset: 0 0 0 340px; }
-#panel { position: absolute; inset: 0 auto 0 0; width: 340px; overflow-y: auto; background: var(--panel); border-right: 1px solid var(--rule); box-sizing: border-box;
-  padding: max(18px, env(safe-area-inset-top)) 18px 18px max(18px, env(safe-area-inset-left)); display: flex; flex-direction: column; gap: 14px; }
-h1 { font: 700 1.35rem var(--display); margin: 0; }
-.sub { color: var(--muted); font-size: 0.92rem; margin-top: 2px; }
-.label { font: 500 0.7rem var(--mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
-.stats { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-.stat { background: var(--panel2); border: 1px solid var(--rule); border-radius: 6px; padding: 8px 10px; }
-.stat b { display: block; font: 600 1.25rem var(--display); font-variant-numeric: tabular-nums; }
-.stat span { color: var(--muted); font-size: 0.8rem; }
-.row { display: flex; align-items: center; gap: 8px; font-size: 0.92rem; }
-.row input { accent-color: var(--ours); }
-.swatch { width: 12px; height: 12px; border-radius: 50%; display: inline-block; flex: none; }
-.seg { display: flex; gap: 4px; }
-.seg button { flex: 1; background: var(--panel2); color: var(--fg); border: 1px solid var(--rule); border-radius: 5px; padding: 6px; font: 600 0.85rem var(--body); cursor: pointer; }
-.seg button[aria-pressed="true"] { border-color: var(--ours); color: var(--ours); }
-.btn { display: block; text-align: center; background: var(--panel2); color: var(--fg); border: 1px solid var(--rule); border-radius: 6px; padding: 8px; text-decoration: none; font-weight: 600; }
-.btn:hover, .seg button:hover { border-color: var(--muted); }
+#map { position: absolute; inset: 0 0 0 370px; }
+#panel { position: absolute; inset: 0 auto 0 0; width: 370px; overflow-y: auto; background: var(--panel); border-right: 1px solid var(--rule); box-sizing: border-box;
+  padding: max(16px, env(safe-area-inset-top)) 16px 20px max(16px, env(safe-area-inset-left)); display: flex; flex-direction: column; gap: 16px; }
+h1 { font: 700 1.3rem var(--display); margin: 0; }
+h2 { font: 500 0.7rem var(--mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); margin: 0 0 6px; }
+.sub, .note { color: var(--muted); font-size: 0.86rem; }
+.note a, .maplibregl-popup-content a, .sub a { color: var(--mly); }
+.row { display: flex; align-items: flex-start; gap: 8px; font-size: 0.92rem; margin: 4px 0; }
+.row input[type=checkbox] { accent-color: var(--ours); margin-top: 4px; }
+.row small { display: block; color: var(--muted); font-size: 0.8rem; line-height: 1.35; }
+.sw { width: 11px; height: 11px; border-radius: 50%; display: inline-block; flex: none; margin-top: 5px; }
+.slider { display: flex; align-items: center; gap: 10px; }
+.slider input { flex: 1; accent-color: var(--ours); }
+.slider output { font: 600 1.1rem var(--display); min-width: 3.2em; text-align: right; font-variant-numeric: tabular-nums; }
+.btns { display: flex; gap: 6px; flex-wrap: wrap; }
+button, .btn { background: var(--panel2); color: var(--fg); border: 1px solid var(--rule); border-radius: 5px; padding: 6px 10px; font: 600 0.85rem var(--body); cursor: pointer; text-decoration: none; }
+button:hover, .btn:hover { border-color: var(--muted); }
+button[aria-pressed="true"] { border-color: var(--ours); color: var(--ours); }
 button:focus-visible, a:focus-visible, input:focus-visible { outline: 2px solid var(--ours); outline-offset: 2px; }
-.note { color: var(--muted); font-size: 0.84rem; }
-.note a, .maplibregl-popup-content a { color: var(--mly); }
+.card { background: var(--panel2); border: 1px solid var(--rule); border-radius: 6px; padding: 10px 12px; font-size: 0.9rem; }
+table { border-collapse: collapse; width: 100%; font-size: 0.82rem; font-variant-numeric: tabular-nums; }
+th, td { padding: 3px 4px; text-align: right; border-bottom: 1px solid var(--rule); }
+th:first-child, td:first-child { text-align: left; }
+th { color: var(--muted); font-weight: 600; }
+.area { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; padding: 5px 0; border-bottom: 1px solid var(--rule); font-size: 0.88rem; }
+.area button { padding: 2px 8px; font-size: 0.78rem; }
+.tag { font: 500 0.68rem var(--mono); color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; }
 .maplibregl-popup-content { background: var(--panel); color: var(--fg); font: 14px/1.45 var(--body); border: 1px solid var(--rule); border-radius: 6px; padding: 10px 12px; }
 .maplibregl-popup-tip { border-top-color: var(--panel) !important; border-bottom-color: var(--panel) !important; }
 .kv { display: grid; grid-template-columns: auto auto; gap: 2px 12px; margin-top: 6px; font-variant-numeric: tabular-nums; }
 .kv span:nth-child(odd) { color: var(--muted); }
+#drawhint { position: absolute; top: 12px; left: calc(370px + 50%); transform: translateX(-50%); background: var(--panel); border: 1px solid var(--ours); color: var(--fg);
+  padding: 6px 12px; border-radius: 6px; font-size: 0.9rem; z-index: 2; }
 @media (max-width: 760px) {
-  #map { inset: 0 0 46vh 0; }
-  #panel { inset: auto 0 0 0; width: auto; height: 46vh; border-right: 0; border-top: 1px solid var(--rule);
+  #map { inset: 0 0 48vh 0; }
+  #panel { inset: auto 0 0 0; width: auto; height: 48vh; border-right: 0; border-top: 1px solid var(--rule);
     padding: 14px max(16px, env(safe-area-inset-right)) max(14px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left)); }
+  #drawhint { left: 50%; }
 }
 </style>
 </head>
 <body>
 <div id="map" role="region" aria-label="Map of located utility poles"></div>
+<div id="drawhint" hidden>Drag on the map to draw a box</div>
 <aside id="panel">
   <div>
-    <h1>Knoxville Pole Map</h1>
-    <div class="sub">Utility poles found in open street-level photos and placed on the map by Open Pole Locator.</div>
+    <h1>Open Pole Locator</h1>
+    <div class="sub">Utility poles found in open street-level photos (Mapillary) and placed on the map, one dot per pole, each with a chance of being a real pole and an error in meters. This web version shows the areas already processed; new areas are processed with the desktop app.</div>
   </div>
-  <div class="stats" id="stats"></div>
-  <div>
-    <div class="label">Layers</div>
-    <label class="row"><input type="checkbox" id="l-ours" checked> <span class="swatch" style="background:var(--ours)"></span> Our poles (one dot per pole)</label>
-    <label class="row"><input type="checkbox" id="l-err"> <span class="swatch" style="border:1.5px solid var(--ours);box-sizing:border-box"></span> 90% error circles</label>
-    <label class="row"><input type="checkbox" id="l-mly"> <span class="swatch" style="background:var(--mly)"></span> Mapillary's own pole points</label>
-  </div>
-  <div>
-    <div class="label">Base map</div>
-    <div class="seg" role="group" aria-label="Base map">
-      <button id="b-dark" aria-pressed="true">Dark</button><button id="b-light" aria-pressed="false">Light</button><button id="b-sat" aria-pressed="false">Satellite</button>
-    </div>
-  </div>
-  <div class="note">Click a dot for its chance of being a real pole, its typical error and the street photos it came from. Brighter dots are more likely real poles.</div>
-  <a class="btn" href="data/knoxville_poles.geojson" download>Download poles (GeoJSON)</a>
-  <div class="note" id="method"></div>
-  <div class="note">Street-level photos and derived pole points © <a href="https://www.mapillary.com" target="_blank" rel="noopener">Mapillary</a> contributors, CC BY-SA 4.0. Base maps © OpenStreetMap contributors, OpenFreeMap. Code: <a href="https://github.com/Andyzxm" target="_blank" rel="noopener">Open Pole Locator</a> (Apache 2.0).</div>
+
+  <section>
+    <h2>Which dots to show</h2>
+    <div class="slider"><input type="range" id="cut" min="5" max="90" step="5" value="45" aria-label="Minimum chance of a real pole"><output id="cutv">45%</output></div>
+    <div class="note">Show dots whose chance of being a real pole is at least this. 45% is the tested setting (best balance). Lower finds more poles but adds more wrong dots; the accuracy table below updates as you move it.</div>
+  </section>
+
+  <section>
+    <h2>Box tool</h2>
+    <div class="btns"><button id="draw" aria-pressed="false">Draw a box</button><button id="clear">Clear box</button></div>
+    <div class="card" id="boxinfo" hidden></div>
+  </section>
+
+  <section>
+    <h2>Layers</h2>
+    <label class="row"><input type="checkbox" id="l-ours" checked><span class="sw" style="background:var(--ours)"></span><span>Our poles (Open Pole Locator)<small>One dot per pole, placed by combining many photos. Click for details and the photos.</small></span></label>
+    <label class="row"><input type="checkbox" id="l-err"><span class="sw" style="border:1.5px solid var(--ours);box-sizing:border-box"></span><span>Our 90% error circles</span></label>
+    <label class="row"><input type="checkbox" id="l-truth" checked><span class="sw" style="background:var(--truth)"></span><span>Utility pole records (ground truth)<small>The utilities' own pole locations, where public: Seattle City Light, Town of Apex, City of Newton. Used to score accuracy. Not available for Knoxville (KUB does not publish them) or Oregon (not redistributable).</small></span></label>
+    <label class="row"><input type="checkbox" id="l-mly"><span class="sw" style="background:var(--mly)"></span><span>Mapillary's automatic pole detections<small>Mapillary's own result ("map features"): its AI places a point wherever it recognizes a pole-like object across its photos. Often several points per pole and some on streetlights or signs; no error estimate. Shown for comparison, scored in the table below.</small></span></label>
+    <label class="row"><input type="checkbox" id="l-areas" checked><span class="sw" style="border:1.5px dashed var(--muted);border-radius:2px;box-sizing:border-box"></span><span>Processed areas</span></label>
+  </section>
+
+  <section>
+    <h2>Base map</h2>
+    <div class="btns" role="group" aria-label="Base map"><button id="b-dark" aria-pressed="true">Dark</button><button id="b-light" aria-pressed="false">Light</button><button id="b-sat" aria-pressed="false">Satellite</button></div>
+  </section>
+
+  <section>
+    <h2>Accuracy against utility records (within 10 m)</h2>
+    <div id="acc"></div>
+    <div class="note">Precision: share of dots within 10 m of a real pole. Recall: share of the real poles within 30 m of a photo that get a dot. Records that cannot be classified are left out. Precision is a lower bound (some "wrong" dots are real poles missing from the records).</div>
+  </section>
+
+  <section>
+    <h2>Processed areas</h2>
+    <div id="areas"></div>
+  </section>
+
+  <section class="note">
+    <a class="btn" href="data/poles.geojson" download style="display:inline-block;margin-bottom:8px">Download all our dots (GeoJSON)</a><br>
+    Street-level photos, derived pole points and Mapillary detections © <a href="https://www.mapillary.com" target="_blank" rel="noopener">Mapillary</a> contributors, CC BY-SA 4.0. Utility records: Seattle City Light, Town of Apex, City of Newton open data. Base maps © OpenStreetMap contributors, OpenFreeMap. Built with Open Pole Locator (Apache 2.0), processed November 17, 2026.
+  </section>
 </aside>
 <script>
-const META = {"n_poles": 1493, "area_km2": 15.94, "poles_per_km2": 93.7, "n_photos": 30756, "years": "2015 to 2026", "center": [-83.93, 35.965], "processed": "November 17, 2026", "bbox": [-83.95, 35.945, -83.91, 35.985], "n_mapillary_points": 21448};
+const AREAS = [{"id": "knox_demo_nw", "name": "Knoxville: Old North and Fourth and Gill", "short": "Knox NW", "kind": "Knoxville demo, no public records", "bbox": [-83.95, 35.965, -83.93, 35.985], "center": [-83.94, 35.975], "truth": false, "n_photos": 6361, "years": ["2015", "2016", "2017", "2018", "2021", "2023", "2025", "2026"]}, {"id": "knox_demo_ne", "name": "Knoxville: North Knoxville and Mechanicsville east", "short": "Knox NE", "kind": "Knoxville demo, no public records", "bbox": [-83.93, 35.965, -83.91, 35.985], "center": [-83.92, 35.975], "truth": false, "n_photos": 6836, "years": ["2015", "2016", "2017", "2018", "2021", "2023", "2025", "2026"]}, {"id": "knox_demo_sw", "name": "Knoxville: Fort Sanders and UT", "short": "Knox SW", "kind": "Knoxville demo, no public records", "bbox": [-83.95, 35.945, -83.93, 35.965], "center": [-83.94, 35.955], "truth": false, "n_photos": 11102, "years": ["2015", "2016", "2017", "2018", "2023", "2024", "2025", "2026"]}, {"id": "knox_demo_se", "name": "Knoxville: Downtown and Old City", "short": "Knox SE", "kind": "Knoxville demo, no public records", "bbox": [-83.93, 35.945, -83.91, 35.965], "center": [-83.92, 35.955], "truth": false, "n_photos": 6457, "years": ["2015", "2016", "2017", "2018", "2023", "2024", "2025"]}, {"id": "apex_downtown", "name": "Apex, NC: downtown", "short": "Apex", "kind": "final test, never used in development", "bbox": [-78.86, 35.725, -78.84, 35.74], "center": [-78.85, 35.7325], "truth": true, "n_photos": 6335, "years": ["2018", "2019", "2021", "2022", "2025", "2026"]}, {"id": "newton_center", "name": "Newton, MA: Newton Centre", "short": "Newton", "kind": "final test, never used in development", "bbox": [-71.205, 42.325, -71.185, 42.34], "center": [-71.195, 42.3325], "truth": true, "n_photos": 3882, "years": ["2015", "2017", "2018", "2019", "2025"]}, {"id": "seattle_beacon_hill", "name": "Seattle: Beacon Hill", "short": "Beacon Hill", "kind": "test area", "bbox": [-122.32, 47.555, -122.3, 47.57], "center": [-122.31, 47.5625], "truth": true, "n_photos": 2897, "years": ["2017", "2018", "2020", "2021", "2022", "2023", "2025", "2026"]}, {"id": "seattle_ballard", "name": "Seattle: Ballard", "short": "Ballard", "kind": "test area, used for checks", "bbox": [-122.395, 47.66, -122.375, 47.675], "center": [-122.385, 47.6675], "truth": true, "n_photos": 6325, "years": ["2016", "2017", "2018", "2020", "2021", "2022", "2023", "2026"]}, {"id": "seattle_phinney", "name": "Seattle: Phinney Ridge", "short": "Phinney", "kind": "tuning area (used to tune the method)", "bbox": [-122.365, 47.67, -122.35, 47.68], "center": [-122.3575, 47.675], "truth": true, "n_photos": 4093, "years": ["2016", "2017", "2018", "2019", "2020", "2021", "2022", "2023", "2026"]}, {"id": "seattle_greenwood", "name": "Seattle: Greenwood", "short": "Greenwood", "kind": "tuning area (used to tune the method)", "bbox": [-122.365, 47.685, -122.35, 47.695], "center": [-122.3575, 47.69], "truth": true, "n_photos": 3481, "years": ["2016", "2017", "2018", "2019", "2020", "2021", "2022", "2023", "2026"]}, {"id": "seattle_wallingford", "name": "Seattle: Wallingford", "short": "Wallingford", "kind": "tuning area (used to tune the method)", "bbox": [-122.34, 47.655, -122.325, 47.665], "center": [-122.3325, 47.66], "truth": true, "n_photos": 4607, "years": ["2014", "2015", "2016", "2017", "2018", "2019", "2020", "2021", "2022", "2023"]}, {"id": "seattle_west_seattle", "name": "Seattle: West Seattle", "short": "W Seattle", "kind": "tuning area (used to tune the method)", "bbox": [-122.39, 47.555, -122.375, 47.565], "center": [-122.3825, 47.56], "truth": true, "n_photos": 3721, "years": ["2016", "2018", "2019", "2020", "2021", "2024"]}, {"id": "pge_st_johns", "name": "Portland, OR: St Johns", "short": "St Johns", "kind": "tuning area, records not public here", "bbox": [-122.7575, 45.585, -122.7425, 45.595], "center": [-122.75, 45.59], "truth": false, "n_photos": 6255, "years": ["2018", "2024", "2025", "2026"]}, {"id": "pge_gresham", "name": "Gresham, OR", "short": "Gresham", "kind": "tuning area, records not public here", "bbox": [-122.4395, 45.495, -122.4245, 45.505], "center": [-122.432, 45.5], "truth": false, "n_photos": 5798, "years": ["2018", "2025"]}, {"id": "pge_salem_ne", "name": "Salem, OR: northeast", "short": "Salem", "kind": "tuning area, records not public here", "bbox": [-123.0275, 44.945, -123.0125, 44.955], "center": [-123.02, 44.95], "truth": false, "n_photos": 2897, "years": ["2019", "2021", "2022", "2023", "2024", "2025", "2026"]}];
 const STYLES = {
   dark: "https://tiles.openfreemap.org/styles/dark",
   light: "https://tiles.openfreemap.org/styles/positron",
@@ -79,74 +115,149 @@ const STYLES = {
       tiles: ["https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"] } },
     layers: [{ id: "sat", type: "raster", source: "sat" }] }
 };
-const fmt = (v, d = 1) => v == null ? "n/a" : Number(v).toFixed(d);
-document.getElementById("stats").innerHTML = [
-  [META.n_poles.toLocaleString(), "poles located"], [fmt(META.area_km2, 1) + " km²", "area processed"],
-  [Math.round(META.poles_per_km2), "poles per km²"], [META.n_photos.toLocaleString(), "street photos used"]]
-  .map(([b, s]) => `<div class="stat"><b>${b}</b><span>${s}</span></div>`).join("");
-document.getElementById("method").textContent =
-  `Processed ${META.processed}. Photos from ${META.years}. Accuracy in four test cities: about 60 to 70% of dots within 10 m of a utility record, typical error 2 to 3 m. Only poles visible from streets with Mapillary car photos are found.`;
-
-const map = new maplibregl.Map({ container: "map", style: STYLES.dark, center: META.center, zoom: 14.2,
-  attributionControl: { compact: true }, maxZoom: 20 });
+const $ = id => document.getElementById(id);
+const fmt = (v, d = 1) => v == null || isNaN(v) ? "n/a" : Number(v).toFixed(d);
+const pct = v => v == null || isNaN(v) ? "n/a" : Math.round(100 * v) + "%";
+let CUT = 0.45, POLES = null, MLY = null, TRUTH = null, BOX = null, STYLE_READY = false;
+const knox = AREAS.find(a => a.id.startsWith("knox")) || AREAS[0];
+const map = new maplibregl.Map({ container: "map", style: STYLES.dark, center: knox.center, zoom: 13.6, attributionControl: { compact: true }, maxZoom: 20 });
 map.addControl(new maplibregl.NavigationControl({ showCompass: false }), "top-right");
 map.addControl(new maplibregl.ScaleControl({ unit: "metric" }), "bottom-right");
-let POLES = null, MLY = null;
-const vis = id => document.getElementById(id).checked ? "visible" : "none";
-const MPP = 156543.03 * Math.cos(META.center[1] * Math.PI / 180);   // meters per pixel at zoom 0
+const vis = id => $(id).checked ? "visible" : "none";
 
+// ---------- geometry helpers: meters on a local plane, greedy one-to-one matching (same rules as scripts/score_area.py)
+function xy(c, lat0) { return [c[0] * 111320 * Math.cos(lat0 * Math.PI / 180), c[1] * 110540]; }
+function inBox(c, b) { return c[0] >= b[0] && c[0] <= b[2] && c[1] >= b[1] && c[1] <= b[3]; }
+function greedy(P, T, r) {               // P, T: arrays of [x, y]; returns matched pairs [i, j, d]
+  const cell = r, grid = new Map(), key = (x, y) => Math.floor(x / cell) + "," + Math.floor(y / cell);
+  T.forEach((t, j) => { const k = key(t[0], t[1]); (grid.get(k) || grid.set(k, []).get(k)).push(j); });
+  const pairs = [];
+  P.forEach((p, i) => { const cx = Math.floor(p[0] / cell), cy = Math.floor(p[1] / cell);
+    for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) for (const j of grid.get((cx + dx) + "," + (cy + dy)) || []) {
+      const d = Math.hypot(p[0] - T[j][0], p[1] - T[j][1]); if (d <= r) pairs.push([i, j, d]); } });
+  pairs.sort((a, b) => a[2] - b[2]);
+  const up = new Set(), ut = new Set(), out = [];
+  for (const [i, j, d] of pairs) if (!up.has(i) && !ut.has(j)) { up.add(i); ut.add(j); out.push([i, j, d]); }
+  return out;
+}
+function score(preds, b) {               // preds: coordinates; b: box. Returns {n, p, r, f} or null without records
+  if (!TRUTH) return null;
+  const lat0 = (b[1] + b[3]) / 2, inside = TRUTH.features.filter(f => inBox(f.geometry.coordinates, b));
+  const T = inside.filter(f => f.properties.k === "u" && f.properties.near).map(f => xy(f.geometry.coordinates, lat0));
+  const IG = inside.filter(f => f.properties.k === "a").map(f => xy(f.geometry.coordinates, lat0));
+  if (!T.length) return null;
+  const P = preds.filter(c => inBox(c, b)).map(c => xy(c, lat0));
+  const m = greedy(P, T, 10), used = new Set(m.map(x => x[0]));
+  const rest = P.filter((_, i) => !used.has(i)), nIg = IG.length ? greedy(rest, IG, 10).length : 0;
+  const prec = m.length / Math.max(P.length - nIg, 1), rec = m.length / T.length;
+  return { n: P.length, nt: T.length, p: prec, r: rec, f: prec + rec ? 2 * prec * rec / (prec + rec) : 0 };
+}
+const shown = () => POLES ? POLES.features.filter(f => f.properties.p >= CUT) : [];
+
+// ---------- layers
 function addLayers() {
-  if (!POLES || !STYLE_READY || map.getSource("ours")) return;   // needs both the data and a ready base style
-  map.addSource("ours", { type: "geojson", data: POLES,
-    attribution: 'Pole dots derived from street-level imagery © <a href="https://www.mapillary.com" target="_blank">Mapillary</a> (CC BY-SA 4.0)' });
-  map.addSource("mly", { type: "geojson", data: MLY || { type: "FeatureCollection", features: [] },
-    attribution: 'Pole points © <a href="https://www.mapillary.com" target="_blank">Mapillary</a>' });
-  map.addLayer({ id: "err", type: "circle", source: "ours", layout: { visibility: vis("l-err") }, paint: {
-    "circle-radius": ["interpolate", ["exponential", 2], ["zoom"], 10, ["/", ["*", ["get", "err90_m"], 1024], MPP], 22, ["/", ["*", ["get", "err90_m"], 4194304], MPP]],
-    "circle-color": "rgba(242,168,59,0.08)", "circle-stroke-color": "#f2a83b", "circle-stroke-width": 1, "circle-stroke-opacity": 0.6 } });
+  if (!POLES || !STYLE_READY || map.getSource("ours")) return;
+  const MLYATTR = 'Photos, pole dots and detections © <a href="https://www.mapillary.com" target="_blank">Mapillary</a> (CC BY-SA 4.0)';
+  map.addSource("areas", { type: "geojson", data: { type: "FeatureCollection", features: AREAS.map(a => ({ type: "Feature", properties: { name: a.name },
+    geometry: { type: "Polygon", coordinates: [[[a.bbox[0], a.bbox[1]], [a.bbox[2], a.bbox[1]], [a.bbox[2], a.bbox[3]], [a.bbox[0], a.bbox[3]], [a.bbox[0], a.bbox[1]]]] } })) } });
+  map.addSource("truth", { type: "geojson", data: TRUTH || { type: "FeatureCollection", features: [] } });
+  map.addSource("mly", { type: "geojson", data: MLY || { type: "FeatureCollection", features: [] }, attribution: MLYATTR });
+  map.addSource("ours", { type: "geojson", data: POLES, attribution: MLYATTR });
+  map.addSource("box", { type: "geojson", data: boxFC() });
+  map.addLayer({ id: "areas", type: "line", source: "areas", layout: { visibility: vis("l-areas") }, paint: { "line-color": "#98a4b3", "line-width": 1.2, "line-dasharray": [3, 2] } });
+  map.addLayer({ id: "areas-lbl", type: "symbol", source: "areas", maxzoom: 12, layout: { visibility: vis("l-areas"), "text-field": ["get", "name"], "text-font": ["Noto Sans Regular"], "text-size": 12 },
+    paint: { "text-color": "#e4e9ef", "text-halo-color": "#121821", "text-halo-width": 1.5 } });
+  map.addLayer({ id: "err", type: "circle", source: "ours", filter: [">=", ["get", "p"], CUT], layout: { visibility: vis("l-err") }, paint: {
+    "circle-radius": ["interpolate", ["exponential", 2], ["zoom"], 10, ["*", ["get", "r0"], 1024], 22, ["*", ["get", "r0"], 4194304]],   // r0 = 90% radius in pixels at zoom 0
+    "circle-color": "rgba(242,168,59,0.07)", "circle-stroke-color": "#f2a83b", "circle-stroke-width": 1, "circle-stroke-opacity": 0.55 } });
+  map.addLayer({ id: "truth", type: "circle", source: "truth", layout: { visibility: vis("l-truth") }, paint: {
+    "circle-radius": ["interpolate", ["linear"], ["zoom"], 12, 1.5, 18, 6], "circle-color": ["match", ["get", "k"], "u", "#5cc98a", "#3b6b52"], "circle-opacity": 0.9 } });
   map.addLayer({ id: "mly", type: "circle", source: "mly", layout: { visibility: vis("l-mly") }, paint: {
-    "circle-radius": ["interpolate", ["linear"], ["zoom"], 12, 1.5, 18, 5], "circle-color": "#7fb2f0", "circle-opacity": 0.85 } });
-  map.addLayer({ id: "ours", type: "circle", source: "ours", layout: { visibility: vis("l-ours") }, paint: {
+    "circle-radius": ["interpolate", ["linear"], ["zoom"], 12, 1.2, 18, 4.5], "circle-color": "#6fa8f0", "circle-opacity": 0.8 } });
+  map.addLayer({ id: "ours", type: "circle", source: "ours", filter: [">=", ["get", "p"], CUT], layout: { visibility: vis("l-ours") }, paint: {
     "circle-radius": ["interpolate", ["linear"], ["zoom"], 11, 2, 14, 3.5, 18, 7],
-    "circle-color": ["interpolate", ["linear"], ["get", "p_real"], 0.45, "#f6d28c", 0.8, "#f2a83b"],
+    "circle-color": ["interpolate", ["linear"], ["get", "p"], 0.05, "#7a5a2a", 0.45, "#f2c069", 0.8, "#f2a83b"],
     "circle-stroke-color": "#1b1206", "circle-stroke-width": ["interpolate", ["linear"], ["zoom"], 12, 0, 16, 1] } });
-  map.resize(); map.triggerRepaint();     // draw at once, even if the page was laid out before the map
+  map.addLayer({ id: "box", type: "line", source: "box", paint: { "line-color": "#f2a83b", "line-width": 2 } });
+  map.resize(); map.triggerRepaint();
 }
-let STYLE_READY = false;
+let STYLE_KEY = "dark";
 map.on("style.load", () => { STYLE_READY = true; addLayers(); });
-Promise.all([fetch("data/knoxville_poles.geojson").then(r => r.json()), fetch("data/mapillary_poles.geojson").then(r => r.json()).catch(() => null)])
-  .then(([p, m]) => { POLES = p; MLY = m; addLayers(); });
+Promise.all(["poles", "mapillary", "truth"].map(n => fetch(`data/${n}.geojson`).then(r => r.json()).catch(() => null)))
+  .then(([p, m, t]) => { POLES = p; MLY = m; TRUTH = t; addLayers(); refresh(); });
 
-for (const [id, layer] of [["l-ours", "ours"], ["l-err", "err"], ["l-mly", "mly"]])
-  document.getElementById(id).addEventListener("change", () => map.getLayer(layer) && map.setLayoutProperty(layer, "visibility", vis(id)));
-for (const k of ["dark", "light", "sat"])
-  document.getElementById("b-" + k).addEventListener("click", () => {
-    for (const j of ["dark", "light", "sat"]) document.getElementById("b-" + j).setAttribute("aria-pressed", String(j === k));
-    STYLE_READY = false;
-    map.setStyle(STYLES[k]);
-  });
-
-map.on("click", "ours", e => {
-  const p = e.features[0].properties;
-  const ids = (p.image_ids || "").split(",").filter(Boolean).slice(0, 5);
-  const links = ids.map((id, i) => `<a href="https://www.mapillary.com/app/?pKey=${id}" target="_blank" rel="noopener">photo ${i + 1}</a>`).join(" · ");
-  new maplibregl.Popup({ maxWidth: "300px" }).setLngLat(e.features[0].geometry.coordinates).setHTML(
-    `<b>Utility pole</b><div class="kv">
-      <span>Chance it is a real pole</span><span>${Math.round(100 * p.p_real)}%</span>
-      <span>Typical error</span><span>about ${fmt(p.err50_m)} m</span>
-      <span>90% within</span><span>${fmt(p.err90_m)} m</span>
-      <span>Seen in</span><span>${p.n_views} photos</span>
-      <span>Photo years</span><span>${p.years || "n/a"}</span></div>
-     <div style="margin-top:6px">${links ? "Street photos: " + links : ""}</div>`).addTo(map);
-});
-map.on("click", "mly", e => {
-  new maplibregl.Popup({ maxWidth: "260px" }).setLngLat(e.features[0].geometry.coordinates)
-    .setHTML("<b>Mapillary's own pole point</b><div class='note'>Made by Mapillary's detection, shown for comparison. It often puts several points on one pole.</div>").addTo(map);
-});
-for (const l of ["ours", "mly"]) {
-  map.on("mouseenter", l, () => map.getCanvas().style.cursor = "pointer");
-  map.on("mouseleave", l, () => map.getCanvas().style.cursor = "");
+function setCut(v) {
+  CUT = v; $("cutv").textContent = Math.round(100 * v) + "%";
+  for (const l of ["ours", "err"]) if (map.getLayer(l)) map.setFilter(l, [">=", ["get", "p"], CUT]);
+  refresh();
 }
+$("cut").addEventListener("input", e => setCut(Number(e.target.value) / 100));
+for (const [id, ls] of [["l-ours", ["ours"]], ["l-err", ["err"]], ["l-mly", ["mly"]], ["l-truth", ["truth"]], ["l-areas", ["areas", "areas-lbl"]]])
+  $(id).addEventListener("change", () => ls.forEach(l => map.getLayer(l) && map.setLayoutProperty(l, "visibility", vis(id))));
+for (const k of ["dark", "light", "sat"])
+  $("b-" + k).addEventListener("click", () => { for (const j of ["dark", "light", "sat"]) $("b-" + j).setAttribute("aria-pressed", String(j === k)); STYLE_READY = false; map.setStyle(STYLES[k]); });
+
+// ---------- accuracy table and area list
+function refresh() {
+  if (!POLES) return;
+  const ours = shown().map(f => f.geometry.coordinates), mly = MLY ? MLY.features.map(f => f.geometry.coordinates) : [];
+  let rows = "";
+  for (const a of AREAS.filter(a => a.truth)) {
+    const s = score(ours, a.bbox), m = score(mly, a.bbox);
+    if (!s) continue;
+    rows += `<tr><td>${a.short}</td><td>${pct(s.p)}</td><td>${pct(s.r)}</td><td><b>${fmt(s.f, 2)}</b></td><td>${pct(m.p)}</td><td>${pct(m.r)}</td><td>${fmt(m.f, 2)}</td></tr>`;
+  }
+  $("acc").innerHTML = `<table><tr><th>Area</th><th colspan="3" style="text-align:center;color:var(--ours)">Ours (P, R, F1)</th><th colspan="3" style="text-align:center;color:var(--mly)">Mapillary (P, R, F1)</th></tr>${rows}</table>`;
+  $("areas").innerHTML = AREAS.map((a, i) => `<div class="area"><div>${a.name}<br><span class="tag">${a.kind}</span></div><button data-i="${i}">Go</button></div>`).join("");
+  document.querySelectorAll("#areas button").forEach(b => b.addEventListener("click", () => { const a = AREAS[b.dataset.i]; map.fitBounds([[a.bbox[0], a.bbox[1]], [a.bbox[2], a.bbox[3]]], { padding: 30 }); }));
+  boxInfo();
+}
+
+// ---------- box tool
+function boxFC() { return { type: "FeatureCollection", features: BOX ? [{ type: "Feature", geometry: { type: "Polygon", coordinates: [[[BOX[0], BOX[1]], [BOX[2], BOX[1]], [BOX[2], BOX[3]], [BOX[0], BOX[3]], [BOX[0], BOX[1]]]] } }] : [] }; }
+function km2(b) { return Math.abs(b[2] - b[0]) * 111.32 * Math.cos((b[1] + b[3]) / 2 * Math.PI / 180) * Math.abs(b[3] - b[1]) * 110.54; }
+function boxInfo() {
+  const el = $("boxinfo");
+  if (!BOX || !POLES) { el.hidden = true; return; }
+  const ours = shown().map(f => f.geometry.coordinates).filter(c => inBox(c, BOX));
+  const mly = MLY ? MLY.features.map(f => f.geometry.coordinates).filter(c => inBox(c, BOX)) : [];
+  const tr = TRUTH ? TRUTH.features.filter(f => f.properties.k === "u" && inBox(f.geometry.coordinates, BOX)) : [];
+  const a = km2(BOX), s = score(shown().map(f => f.geometry.coordinates), BOX), m = score(mly, BOX);
+  const covered = AREAS.some(x => !(x.bbox[2] < BOX[0] || x.bbox[0] > BOX[2] || x.bbox[3] < BOX[1] || x.bbox[1] > BOX[3]));
+  el.hidden = false;
+  el.innerHTML = `<div class="kv"><span>Box area</span><span>${fmt(a, 2)} km²</span>
+    <span>Our poles</span><span><b>${ours.length}</b> (${Math.round(ours.length / a)} per km²)</span>
+    <span>Mapillary detections</span><span>${mly.length}</span>
+    <span>Utility records</span><span>${TRUTH && tr.length ? tr.length : "none public here"}</span></div>` +
+    (s ? `<div style="margin-top:6px">Within 10 m of a record: ours P ${pct(s.p)}, R ${pct(s.r)}, F1 ${fmt(s.f, 2)}; Mapillary P ${pct(m.p)}, R ${pct(m.r)}, F1 ${fmt(m.f, 2)}.</div>` : "") +
+    (covered ? "" : `<div class="note" style="margin-top:6px">This box is outside the processed areas. New areas run in the desktop app (about 2 to 4 minutes per km²) and can then be added here.</div>`);
+}
+let drawing = false, start = null;
+$("draw").addEventListener("click", () => { drawing = !drawing; $("draw").setAttribute("aria-pressed", String(drawing)); $("drawhint").hidden = !drawing; map.dragPan[drawing ? "disable" : "enable"](); });
+$("clear").addEventListener("click", () => { BOX = null; map.getSource("box") && map.getSource("box").setData(boxFC()); boxInfo(); });
+map.on("mousedown", e => { if (!drawing) return; start = e.lngLat; });
+map.on("mousemove", e => { if (!drawing || !start) return;
+  BOX = [Math.min(start.lng, e.lngLat.lng), Math.min(start.lat, e.lngLat.lat), Math.max(start.lng, e.lngLat.lng), Math.max(start.lat, e.lngLat.lat)];
+  map.getSource("box") && map.getSource("box").setData(boxFC()); });
+map.on("mouseup", () => { if (!drawing || !start) return; start = null; drawing = false; $("draw").setAttribute("aria-pressed", "false"); $("drawhint").hidden = true; map.dragPan.enable(); boxInfo(); });
+
+// ---------- popups
+map.on("click", "ours", e => { if (drawing) return;
+  const p = e.features[0].properties, ids = (p.ids || "").split(",").filter(Boolean).slice(0, 5);
+  const links = ids.map((id, i) => `<a href="https://www.mapillary.com/app/?pKey=${id}" target="_blank" rel="noopener">${i + 1}</a>`).join(" · ");
+  new maplibregl.Popup({ maxWidth: "300px" }).setLngLat(e.features[0].geometry.coordinates).setHTML(
+    `<b>Our pole</b><div class="kv"><span>Chance it is a real pole</span><span>${Math.round(100 * p.p)}%</span>
+     <span>Typical error</span><span>about ${fmt(p.e50)} m</span><span>90% within</span><span>${fmt(p.e90)} m</span>
+     <span>Seen in</span><span>${p.nv} photos</span><span>Photo years</span><span>${p.yrs || "n/a"}</span></div>
+     <div style="margin-top:6px">${links ? "Street photos: " + links : ""}</div>`).addTo(map); });
+map.on("click", "mly", e => { if (drawing) return;
+  new maplibregl.Popup({ maxWidth: "270px" }).setLngLat(e.features[0].geometry.coordinates)
+    .setHTML("<b>Mapillary detection</b><div class='note'>Placed by Mapillary's own automatic detection (map feature 'utility pole'). Not checked; often several per pole. Compare with the green utility records.</div>").addTo(map); });
+map.on("click", "truth", e => { if (drawing) return;
+  const p = e.features[0].properties;
+  new maplibregl.Popup({ maxWidth: "260px" }).setLngLat(e.features[0].geometry.coordinates)
+    .setHTML(`<b>Utility pole record</b><div class='note'>${p.src}. ${p.k === "u" ? "Utility pole (counts in scoring)" + (p.near ? "" : ", but more than 30 m from any photo, so not counted in recall") : "Type unclear in the records: left out of scoring"}.</div>`).addTo(map); });
+for (const l of ["ours", "mly", "truth"]) { map.on("mouseenter", l, () => { if (!drawing) map.getCanvas().style.cursor = "pointer"; }); map.on("mouseleave", l, () => map.getCanvas().style.cursor = ""); }
 </script>
 </body>
 </html>
