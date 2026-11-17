@@ -165,7 +165,13 @@ function addLayers() {
   map.addSource("ours", { type: "geojson", data: POLES, attribution: MLYATTR });
   map.addSource("box", { type: "geojson", data: boxFC() });
   map.addLayer({ id: "areas", type: "line", source: "areas", layout: { visibility: vis("l-areas") }, paint: { "line-color": "#98a4b3", "line-width": 1.2, "line-dasharray": [3, 2] } });
-  map.addLayer({ id: "areas-lbl", type: "symbol", source: "areas", maxzoom: 12, layout: { visibility: vis("l-areas"), "text-field": ["get", "name"], "text-font": ["Noto Sans Regular"], "text-size": 12 },
+  // zoomed out (country or state view) the boxes are too small to see: show each area as a marker with its name
+  map.addSource("area-pts", { type: "geojson", data: { type: "FeatureCollection", features: AREAS.map((a, i) => ({ type: "Feature", properties: { name: a.short, i },
+    geometry: { type: "Point", coordinates: a.center } })) } });
+  map.addLayer({ id: "area-pts", type: "circle", source: "area-pts", maxzoom: 11, layout: { visibility: vis("l-areas") },
+    paint: { "circle-radius": 6, "circle-color": "#f2a83b", "circle-stroke-color": "#121821", "circle-stroke-width": 2 } });
+  map.addLayer({ id: "areas-lbl", type: "symbol", source: "area-pts", maxzoom: 11, layout: { visibility: vis("l-areas"), "text-field": ["get", "name"],
+    "text-font": ["Noto Sans Regular"], "text-size": 12, "text-offset": [0, 1.2], "text-anchor": "top", "text-allow-overlap": false },
     paint: { "text-color": "#e4e9ef", "text-halo-color": "#121821", "text-halo-width": 1.5 } });
   map.addLayer({ id: "err", type: "circle", source: "ours", filter: [">=", ["get", "p"], CUT], layout: { visibility: vis("l-err") }, paint: {
     "circle-radius": ["interpolate", ["exponential", 2], ["zoom"], 10, ["*", ["get", "r0"], 1024], 22, ["*", ["get", "r0"], 4194304]],   // r0 = 90% radius in pixels at zoom 0
@@ -192,7 +198,7 @@ function setCut(v) {
   refresh();
 }
 $("cut").addEventListener("input", e => setCut(Number(e.target.value) / 100));
-for (const [id, ls] of [["l-ours", ["ours"]], ["l-err", ["err"]], ["l-mly", ["mly"]], ["l-truth", ["truth"]], ["l-areas", ["areas", "areas-lbl"]]])
+for (const [id, ls] of [["l-ours", ["ours"]], ["l-err", ["err"]], ["l-mly", ["mly"]], ["l-truth", ["truth"]], ["l-areas", ["areas", "areas-lbl", "area-pts"]]])
   $(id).addEventListener("change", () => ls.forEach(l => map.getLayer(l) && map.setLayoutProperty(l, "visibility", vis(id))));
 for (const k of ["dark", "light", "sat"])
   $("b-" + k).addEventListener("click", () => { for (const j of ["dark", "light", "sat"]) $("b-" + j).setAttribute("aria-pressed", String(j === k)); STYLE_READY = false; map.setStyle(STYLES[k]); });
@@ -257,7 +263,8 @@ map.on("click", "truth", e => { if (drawing) return;
   const p = e.features[0].properties;
   new maplibregl.Popup({ maxWidth: "260px" }).setLngLat(e.features[0].geometry.coordinates)
     .setHTML(`<b>Utility pole record</b><div class='note'>${p.src}. ${p.k === "u" ? "Utility pole (counts in scoring)" + (p.near ? "" : ", but more than 30 m from any photo, so not counted in recall") : "Type unclear in the records: left out of scoring"}.</div>`).addTo(map); });
-for (const l of ["ours", "mly", "truth"]) { map.on("mouseenter", l, () => { if (!drawing) map.getCanvas().style.cursor = "pointer"; }); map.on("mouseleave", l, () => map.getCanvas().style.cursor = ""); }
+map.on("click", "area-pts", e => { const a = AREAS[e.features[0].properties.i]; map.fitBounds([[a.bbox[0], a.bbox[1]], [a.bbox[2], a.bbox[3]]], { padding: 30 }); });
+for (const l of ["ours", "mly", "truth", "area-pts"]) { map.on("mouseenter", l, () => { if (!drawing) map.getCanvas().style.cursor = "pointer"; }); map.on("mouseleave", l, () => map.getCanvas().style.cursor = ""); }
 </script>
 </body>
 </html>
