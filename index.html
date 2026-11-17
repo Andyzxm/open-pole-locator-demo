@@ -110,6 +110,7 @@ function addLayers() {
     "circle-radius": ["interpolate", ["linear"], ["zoom"], 11, 2, 14, 3.5, 18, 7],
     "circle-color": ["interpolate", ["linear"], ["get", "p_real"], 0.45, "#f6d28c", 0.8, "#f2a83b"],
     "circle-stroke-color": "#1b1206", "circle-stroke-width": ["interpolate", ["linear"], ["zoom"], 12, 0, 16, 1] } });
+  map.resize(); map.triggerRepaint();     // draw at once, even if the page was laid out before the map
 }
 let STYLE_READY = false;
 map.on("style.load", () => { STYLE_READY = true; addLayers(); });
