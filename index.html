@@ -1,0 +1,151 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Knoxville Pole Map</title>
+<link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css">
+<script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700&family=Source+Sans+3:wght@400;600&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: full-screen map with a left panel (bottom sheet on phones). Look follows the Geoenergy edition of GeoLibre (MIT, Qiusheng Wu). */
+:root { --panel: #121821; --panel2: #1a2230; --fg: #e4e9ef; --muted: #98a4b3; --rule: #2a3442; --ours: #f2a83b; --ours-lo: #f6d28c; --mly: #7fb2f0;
+  --display: "Archivo", "Helvetica Neue", Arial, sans-serif; --body: "Source Sans 3", "Segoe UI", system-ui, sans-serif; --mono: "JetBrains Mono", Consolas, monospace; color-scheme: dark; }
+html, body { height: 100%; margin: 0; background: var(--panel); color: var(--fg); font: 15px/1.5 var(--body); }
+#map { position: absolute; inset: 0 0 0 340px; }
+#panel { position: absolute; inset: 0 auto 0 0; width: 340px; overflow-y: auto; background: var(--panel); border-right: 1px solid var(--rule); box-sizing: border-box;
+  padding: max(18px, env(safe-area-inset-top)) 18px 18px max(18px, env(safe-area-inset-left)); display: flex; flex-direction: column; gap: 14px; }
+h1 { font: 700 1.35rem var(--display); margin: 0; }
+.sub { color: var(--muted); font-size: 0.92rem; margin-top: 2px; }
+.label { font: 500 0.7rem var(--mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+.stats { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.stat { background: var(--panel2); border: 1px solid var(--rule); border-radius: 6px; padding: 8px 10px; }
+.stat b { display: block; font: 600 1.25rem var(--display); font-variant-numeric: tabular-nums; }
+.stat span { color: var(--muted); font-size: 0.8rem; }
+.row { display: flex; align-items: center; gap: 8px; font-size: 0.92rem; }
+.row input { accent-color: var(--ours); }
+.swatch { width: 12px; height: 12px; border-radius: 50%; display: inline-block; flex: none; }
+.seg { display: flex; gap: 4px; }
+.seg button { flex: 1; background: var(--panel2); color: var(--fg); border: 1px solid var(--rule); border-radius: 5px; padding: 6px; font: 600 0.85rem var(--body); cursor: pointer; }
+.seg button[aria-pressed="true"] { border-color: var(--ours); color: var(--ours); }
+.btn { display: block; text-align: center; background: var(--panel2); color: var(--fg); border: 1px solid var(--rule); border-radius: 6px; padding: 8px; text-decoration: none; font-weight: 600; }
+.btn:hover, .seg button:hover { border-color: var(--muted); }
+button:focus-visible, a:focus-visible, input:focus-visible { outline: 2px solid var(--ours); outline-offset: 2px; }
+.note { color: var(--muted); font-size: 0.84rem; }
+.note a, .maplibregl-popup-content a { color: var(--mly); }
+.maplibregl-popup-content { background: var(--panel); color: var(--fg); font: 14px/1.45 var(--body); border: 1px solid var(--rule); border-radius: 6px; padding: 10px 12px; }
+.maplibregl-popup-tip { border-top-color: var(--panel) !important; border-bottom-color: var(--panel) !important; }
+.kv { display: grid; grid-template-columns: auto auto; gap: 2px 12px; margin-top: 6px; font-variant-numeric: tabular-nums; }
+.kv span:nth-child(odd) { color: var(--muted); }
+@media (max-width: 760px) {
+  #map { inset: 0 0 46vh 0; }
+  #panel { inset: auto 0 0 0; width: auto; height: 46vh; border-right: 0; border-top: 1px solid var(--rule);
+    padding: 14px max(16px, env(safe-area-inset-right)) max(14px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left)); }
+}
+</style>
+</head>
+<body>
+<div id="map" role="region" aria-label="Map of located utility poles"></div>
+<aside id="panel">
+  <div>
+    <h1>Knoxville Pole Map</h1>
+    <div class="sub">Utility poles found in open street-level photos and placed on the map by Open Pole Locator.</div>
+  </div>
+  <div class="stats" id="stats"></div>
+  <div>
+    <div class="label">Layers</div>
+    <label class="row"><input type="checkbox" id="l-ours" checked> <span class="swatch" style="background:var(--ours)"></span> Our poles (one dot per pole)</label>
+    <label class="row"><input type="checkbox" id="l-err"> <span class="swatch" style="border:1.5px solid var(--ours);box-sizing:border-box"></span> 90% error circles</label>
+    <label class="row"><input type="checkbox" id="l-mly"> <span class="swatch" style="background:var(--mly)"></span> Mapillary's own pole points</label>
+  </div>
+  <div>
+    <div class="label">Base map</div>
+    <div class="seg" role="group" aria-label="Base map">
+      <button id="b-dark" aria-pressed="true">Dark</button><button id="b-light" aria-pressed="false">Light</button><button id="b-sat" aria-pressed="false">Satellite</button>
+    </div>
+  </div>
+  <div class="note">Click a dot for its chance of being a real pole, its typical error and the street photos it came from. Brighter dots are more likely real poles.</div>
+  <a class="btn" href="data/knoxville_poles.geojson" download>Download poles (GeoJSON)</a>
+  <div class="note" id="method"></div>
+  <div class="note">Street-level photos and derived pole points © <a href="https://www.mapillary.com" target="_blank" rel="noopener">Mapillary</a> contributors, CC BY-SA 4.0. Base maps © OpenStreetMap contributors, OpenFreeMap. Code: <a href="https://github.com/Andyzxm" target="_blank" rel="noopener">Open Pole Locator</a> (Apache 2.0).</div>
+</aside>
+<script>
+const META = {"n_poles": 1493, "area_km2": 15.94, "poles_per_km2": 93.7, "n_photos": 30756, "years": "2015 to 2026", "center": [-83.93, 35.965], "processed": "November 17, 2026", "bbox": [-83.95, 35.945, -83.91, 35.985], "n_mapillary_points": 21448};
+const STYLES = {
+  dark: "https://tiles.openfreemap.org/styles/dark",
+  light: "https://tiles.openfreemap.org/styles/positron",
+  sat: { version: 8, glyphs: "https://tiles.openfreemap.org/fonts/{fontstack}/{range}.pbf",
+    sources: { sat: { type: "raster", tileSize: 256, attribution: "Imagery © Esri, Maxar, Earthstar Geographics",
+      tiles: ["https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"] } },
+    layers: [{ id: "sat", type: "raster", source: "sat" }] }
+};
+const fmt = (v, d = 1) => v == null ? "n/a" : Number(v).toFixed(d);
+document.getElementById("stats").innerHTML = [
+  [META.n_poles.toLocaleString(), "poles located"], [fmt(META.area_km2, 1) + " km²", "area processed"],
+  [Math.round(META.poles_per_km2), "poles per km²"], [META.n_photos.toLocaleString(), "street photos used"]]
+  .map(([b, s]) => `<div class="stat"><b>${b}</b><span>${s}</span></div>`).join("");
+document.getElementById("method").textContent =
+  `Processed ${META.processed}. Photos from ${META.years}. Accuracy in four test cities: about 60 to 70% of dots within 10 m of a utility record, typical error 2 to 3 m. Only poles visible from streets with Mapillary car photos are found.`;
+
+const map = new maplibregl.Map({ container: "map", style: STYLES.dark, center: META.center, zoom: 14.2,
+  attributionControl: { compact: true }, maxZoom: 20 });
+map.addControl(new maplibregl.NavigationControl({ showCompass: false }), "top-right");
+map.addControl(new maplibregl.ScaleControl({ unit: "metric" }), "bottom-right");
+let POLES = null, MLY = null;
+const vis = id => document.getElementById(id).checked ? "visible" : "none";
+const MPP = 156543.03 * Math.cos(META.center[1] * Math.PI / 180);   // meters per pixel at zoom 0
+
+function addLayers() {
+  if (!POLES || !STYLE_READY || map.getSource("ours")) return;   // needs both the data and a ready base style
+  map.addSource("ours", { type: "geojson", data: POLES,
+    attribution: 'Pole dots derived from street-level imagery © <a href="https://www.mapillary.com" target="_blank">Mapillary</a> (CC BY-SA 4.0)' });
+  map.addSource("mly", { type: "geojson", data: MLY || { type: "FeatureCollection", features: [] },
+    attribution: 'Pole points © <a href="https://www.mapillary.com" target="_blank">Mapillary</a>' });
+  map.addLayer({ id: "err", type: "circle", source: "ours", layout: { visibility: vis("l-err") }, paint: {
+    "circle-radius": ["interpolate", ["exponential", 2], ["zoom"], 10, ["/", ["*", ["get", "err90_m"], 1024], MPP], 22, ["/", ["*", ["get", "err90_m"], 4194304], MPP]],
+    "circle-color": "rgba(242,168,59,0.08)", "circle-stroke-color": "#f2a83b", "circle-stroke-width": 1, "circle-stroke-opacity": 0.6 } });
+  map.addLayer({ id: "mly", type: "circle", source: "mly", layout: { visibility: vis("l-mly") }, paint: {
+    "circle-radius": ["interpolate", ["linear"], ["zoom"], 12, 1.5, 18, 5], "circle-color": "#7fb2f0", "circle-opacity": 0.85 } });
+  map.addLayer({ id: "ours", type: "circle", source: "ours", layout: { visibility: vis("l-ours") }, paint: {
+    "circle-radius": ["interpolate", ["linear"], ["zoom"], 11, 2, 14, 3.5, 18, 7],
+    "circle-color": ["interpolate", ["linear"], ["get", "p_real"], 0.45, "#f6d28c", 0.8, "#f2a83b"],
+    "circle-stroke-color": "#1b1206", "circle-stroke-width": ["interpolate", ["linear"], ["zoom"], 12, 0, 16, 1] } });
+}
+let STYLE_READY = false;
+map.on("style.load", () => { STYLE_READY = true; addLayers(); });
+Promise.all([fetch("data/knoxville_poles.geojson").then(r => r.json()), fetch("data/mapillary_poles.geojson").then(r => r.json()).catch(() => null)])
+  .then(([p, m]) => { POLES = p; MLY = m; addLayers(); });
+
+for (const [id, layer] of [["l-ours", "ours"], ["l-err", "err"], ["l-mly", "mly"]])
+  document.getElementById(id).addEventListener("change", () => map.getLayer(layer) && map.setLayoutProperty(layer, "visibility", vis(id)));
+for (const k of ["dark", "light", "sat"])
+  document.getElementById("b-" + k).addEventListener("click", () => {
+    for (const j of ["dark", "light", "sat"]) document.getElementById("b-" + j).setAttribute("aria-pressed", String(j === k));
+    STYLE_READY = false;
+    map.setStyle(STYLES[k]);
+  });
+
+map.on("click", "ours", e => {
+  const p = e.features[0].properties;
+  const ids = (p.image_ids || "").split(",").filter(Boolean).slice(0, 5);
+  const links = ids.map((id, i) => `<a href="https://www.mapillary.com/app/?pKey=${id}" target="_blank" rel="noopener">photo ${i + 1}</a>`).join(" · ");
+  new maplibregl.Popup({ maxWidth: "300px" }).setLngLat(e.features[0].geometry.coordinates).setHTML(
+    `<b>Utility pole</b><div class="kv">
+      <span>Chance it is a real pole</span><span>${Math.round(100 * p.p_real)}%</span>
+      <span>Typical error</span><span>about ${fmt(p.err50_m)} m</span>
+      <span>90% within</span><span>${fmt(p.err90_m)} m</span>
+      <span>Seen in</span><span>${p.n_views} photos</span>
+      <span>Photo years</span><span>${p.years || "n/a"}</span></div>
+     <div style="margin-top:6px">${links ? "Street photos: " + links : ""}</div>`).addTo(map);
+});
+map.on("click", "mly", e => {
+  new maplibregl.Popup({ maxWidth: "260px" }).setLngLat(e.features[0].geometry.coordinates)
+    .setHTML("<b>Mapillary's own pole point</b><div class='note'>Made by Mapillary's detection, shown for comparison. It often puts several points on one pole.</div>").addTo(map);
+});
+for (const l of ["ours", "mly"]) {
+  map.on("mouseenter", l, () => map.getCanvas().style.cursor = "pointer");
+  map.on("mouseleave", l, () => map.getCanvas().style.cursor = "");
+}
+</script>
+</body>
+</html>
