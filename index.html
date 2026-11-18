@@ -51,6 +51,13 @@ th { color: var(--muted); font-weight: 600; }
 .bar > div { height: 100%; width: 0; background: var(--ours); transition: width 0.4s; }
 button.primary { background: var(--ours); color: #1b1206; border-color: var(--ours); }
 button:disabled { opacity: 0.5; cursor: default; }
+.pv { margin-top: 8px; }
+.pv img { width: 100%; border-radius: 4px; display: block; min-height: 120px; background: var(--panel2); }
+.pv-bar { display: flex; align-items: center; justify-content: space-between; gap: 6px; margin-top: 4px; font-size: 0.8rem; color: var(--muted); }
+.pv-bar button { width: 30px; height: 28px; padding: 0; font-size: 1.1rem; line-height: 1; }
+.pv-note, .pv-msg { font-size: 0.75rem; color: var(--muted); margin-top: 3px; }
+.pv-msg { margin-top: 8px; }
+.pv-note a.pv-link { color: var(--ours); }
 #drawhint { position: absolute; top: 12px; left: calc(370px + 50%); transform: translateX(-50%); background: var(--panel); border: 1px solid var(--ours); color: var(--fg);
   padding: 6px 12px; border-radius: 6px; font-size: 0.9rem; z-index: 2; }
 @media (max-width: 760px) {
@@ -111,7 +118,7 @@ button:disabled { opacity: 0.5; cursor: default; }
 
   <section class="note">
     <a class="btn" href="data/poles.geojson" download style="display:inline-block;margin-bottom:8px">Download all our dots (GeoJSON)</a><br>
-    Street-level photos, derived pole points and Mapillary detections © <a href="https://www.mapillary.com" target="_blank" rel="noopener">Mapillary</a> contributors, CC BY-SA 4.0. Utility records: Seattle City Light, Town of Apex, City of Newton open data. Base maps © OpenStreetMap contributors, OpenFreeMap. Built with Open Pole Locator (Apache 2.0), processed November 17, 2026.
+    Street-level photos, derived pole points and Mapillary detections © <a href="https://www.mapillary.com" target="_blank" rel="noopener">Mapillary</a> contributors, CC BY-SA 4.0. Utility records: Seattle City Light, Town of Apex, City of Newton open data. Base maps © OpenStreetMap contributors, OpenFreeMap. Built with Open Pole Locator (Apache 2.0), processed November 18, 2026.
   </section>
 </aside>
 <script>
@@ -274,11 +281,48 @@ map.on("mouseup", () => { if (!drawing || !start) return; start = null; drawing 
 map.on("click", "ours", e => { if (drawing) return;
   const p = e.features[0].properties, ids = String(p.ids || "").split(",").filter(x => /^\d+$/.test(x)).slice(0, 5);
   const links = ids.map((id, i) => `<a href="https://www.mapillary.com/app/?pKey=${id}" target="_blank" rel="noopener">${i + 1}</a>`).join(" · ");
-  new maplibregl.Popup({ maxWidth: "300px" }).setLngLat(e.features[0].geometry.coordinates).setHTML(
-    `<b>Our pole${p.a < 0 ? " (found live)" : ""}</b><div class="kv"><span>Chance it is a real pole</span><span>${Math.round(100 * p.p)}%</span>
+  const c = e.features[0].geometry.coordinates;
+  const pop = new maplibregl.Popup(LIVE ? { maxWidth: "400px", anchor: sideAnchor(c), offset: 14 } : { maxWidth: "300px" }).setLngLat(c).setHTML(
+    `<b>Our pole${p.a < 0 ? " (found live)" : ""}</b><div id="pv"></div><div class="kv"><span>Chance it is a real pole</span><span>${Math.round(100 * p.p)}%</span>
      <span>Typical error</span><span>about ${fmt(p.e50)} m</span><span>90% within</span><span>${fmt(p.e90)} m</span>
      <span>Seen in</span><span>${esc(p.nv)} photos</span><span>Photo years</span><span>${esc(p.yrs) || "n/a"}</span></div>
-     <div style="margin-top:6px">${links ? "Street photos: " + links : ""}</div>`).addTo(map); });
+     <div style="margin-top:6px">${links ? "Street photos: " + links : ""}</div>`).addTo(map);
+  if (LIVE && ids.length) photoViewer(pop.getElement().querySelector("#pv"), LIVE, ids.join(","), c);
+  else if (ids.length) pop.getElement().querySelector("#pv").innerHTML = '<div class="pv-msg">Photos with the detected box appear here while live detection is online.</div>'; });
+// a card beside the dot (left or right, whichever side has room); after the photo loads, pan the map so
+// the whole card is visible
+function sideAnchor(c) { return map.project(c).x < map.getContainer().clientWidth / 2 ? "left" : "right"; }
+function keepInView(node) {
+  const pop = node.closest(".maplibregl-popup"); if (!pop) return;
+  const r = pop.getBoundingClientRect(), m = map.getContainer().getBoundingClientRect(), pad = 10;
+  let dx = 0, dy = 0;
+  if (r.top < m.top + pad) dy = r.top - m.top - pad; else if (r.bottom > m.bottom - pad) dy = Math.min(r.bottom - m.bottom + pad, r.top - m.top - pad);
+  if (r.left < m.left + pad) dx = r.left - m.left - pad; else if (r.right > m.right - pad) dx = r.right - m.right + pad;
+  if (dx || dy) map.panBy([dx, dy], { duration: 250 });
+}
+// ---------- pole photos: the street photos of a pole with its detection box drawn (server: /api/pole_photos)
+function photoViewer(el, base, ids, c) {
+  el.innerHTML = '<div class="pv-msg">Loading photos ...</div>';
+  const q = `ids=${encodeURIComponent(ids)}&lon=${c[0].toFixed(7)}&lat=${c[1].toFixed(7)}`;
+  fetch(`${base}/api/pole_photos?${q}`).then(r => r.json()).then(j => {
+    const ph = (j.photos || []).filter(p => /^\d+$/.test(p.id));
+    if (!ph.length) { el.innerHTML = '<div class="pv-msg">No saved photo shows this pole.</div>'; return; }
+    let k = 0;
+    const show = () => {
+      const p = ph[k], nx = ph[(k + 1) % ph.length];
+      el.innerHTML = `<div class="pv"><a href="https://www.mapillary.com/app/?pKey=${p.id}" target="_blank" rel="noopener" title="Open this photo in Mapillary">
+        <img src="${base}/api/pole_photo/${p.id}.jpg?lon=${c[0].toFixed(7)}&lat=${c[1].toFixed(7)}" alt="Street photo with the detected pole in an orange box" onload="keepInView(this)"></a>
+        <div class="pv-bar"><button type="button" data-d="-1" aria-label="Previous photo"${ph.length < 2 ? " disabled" : ""}>&#8249;</button>
+        <span>${k + 1} of ${ph.length} &middot; ${p.date || ""} &middot; ${p.pano ? "360&deg; photo" : "photo"} &middot; ${Math.round(p.dist_m)} m away</span>
+        <button type="button" data-d="1" aria-label="Next photo"${ph.length < 2 ? " disabled" : ""}>&#8250;</button></div>
+        <div class="pv-note">Orange box: what the detector found. Click the photo to open it in Mapillary. Photo &copy; <a class="pv-link" href="https://www.mapillary.com" target="_blank" rel="noopener">Mapillary</a>, CC BY-SA 4.0</div></div>`;
+      el.querySelectorAll("button[data-d]").forEach(b => b.onclick = ev => { ev.stopPropagation(); k = (k + Number(b.dataset.d) + ph.length) % ph.length; show(); });
+      if (ph.length > 1) new Image().src = `${base}/api/pole_photo/${nx.id}.jpg?lon=${c[0].toFixed(7)}&lat=${c[1].toFixed(7)}`;
+    };
+    show();
+  }).catch(() => { el.innerHTML = '<div class="pv-msg">Photos are not available right now.</div>'; });
+}
+
 map.on("click", "mly", e => { if (drawing) return;
   new maplibregl.Popup({ maxWidth: "270px" }).setLngLat(e.features[0].geometry.coordinates)
     .setHTML("<b>Mapillary detection</b><div class='note'>Placed by Mapillary's own automatic detection (map feature 'utility pole'). Not checked; often several per pole. Compare with the green utility records.</div>").addTo(map); });
