@@ -44,6 +44,13 @@ th { color: var(--muted); font-weight: 600; }
 .maplibregl-popup-tip { border-top-color: var(--panel) !important; border-bottom-color: var(--panel) !important; }
 .kv { display: grid; grid-template-columns: auto auto; gap: 2px 12px; margin-top: 6px; font-variant-numeric: tabular-nums; }
 .kv span:nth-child(odd) { color: var(--muted); }
+.live { display: flex; align-items: flex-start; gap: 8px; font-size: 0.9rem; margin-bottom: 8px; }
+.dot { width: 9px; height: 9px; border-radius: 50%; background: var(--muted); flex: none; margin-top: 6px; }
+.dot.on { background: var(--truth); box-shadow: 0 0 0 3px rgba(92,201,138,0.2); }
+.bar { height: 6px; background: var(--rule); border-radius: 3px; overflow: hidden; margin: 6px 0 4px; }
+.bar > div { height: 100%; width: 0; background: var(--ours); transition: width 0.4s; }
+button.primary { background: var(--ours); color: #1b1206; border-color: var(--ours); }
+button:disabled { opacity: 0.5; cursor: default; }
 #drawhint { position: absolute; top: 12px; left: calc(370px + 50%); transform: translateX(-50%); background: var(--panel); border: 1px solid var(--ours); color: var(--fg);
   padding: 6px 12px; border-radius: 6px; font-size: 0.9rem; z-index: 2; }
 @media (max-width: 760px) {
@@ -60,7 +67,7 @@ th { color: var(--muted); font-weight: 600; }
 <aside id="panel">
   <div>
     <h1>Open Pole Locator</h1>
-    <div class="sub">Utility poles found in open street-level photos (Mapillary) and placed on the map, one dot per pole, each with a chance of being a real pole and an error in meters. This web version shows the areas already processed; new areas are processed with the desktop app.</div>
+    <div class="sub">Utility poles found in open street-level photos (Mapillary) and placed on the map, one dot per pole, each with a chance of being a real pole and an error in meters. Draw a box anywhere in the U.S. to find its poles live (about 3 minutes per km², where Mapillary has street photos), or browse the areas already processed.</div>
   </div>
 
   <section>
@@ -70,9 +77,11 @@ th { color: var(--muted); font-weight: 600; }
   </section>
 
   <section>
-    <h2>Box tool</h2>
+    <h2>Find poles in a box</h2>
+    <div class="live" id="livestat"><span class="dot"></span><span>Checking live detection ...</span></div>
     <div class="btns"><button id="draw" aria-pressed="false">Draw a box</button><button id="clear">Clear box</button></div>
-    <div class="card" id="boxinfo" hidden></div>
+    <div class="card" id="boxinfo" hidden style="margin-top:8px"></div>
+    <div class="card" id="runbox" hidden style="margin-top:8px"></div>
   </section>
 
   <section>
@@ -81,7 +90,7 @@ th { color: var(--muted); font-weight: 600; }
     <label class="row"><input type="checkbox" id="l-err"><span class="sw" style="border:1.5px solid var(--ours);box-sizing:border-box"></span><span>Our 90% error circles</span></label>
     <label class="row"><input type="checkbox" id="l-truth" checked><span class="sw" style="background:var(--truth)"></span><span>Utility pole records (ground truth)<small>The utilities' own pole locations, where public: Seattle City Light, Town of Apex, City of Newton. Used to score accuracy. Not available for Knoxville (KUB does not publish them) or Oregon (not redistributable).</small></span></label>
     <label class="row"><input type="checkbox" id="l-mly"><span class="sw" style="background:var(--mly)"></span><span>Mapillary's automatic pole detections<small>Mapillary's own result ("map features"): its AI places a point wherever it recognizes a pole-like object across its photos. Often several points per pole and some on streetlights or signs; no error estimate. Shown for comparison, scored in the table below.</small></span></label>
-    <label class="row"><input type="checkbox" id="l-areas" checked><span class="sw" style="border:1.5px dashed var(--muted);border-radius:2px;box-sizing:border-box"></span><span>Processed areas</span></label>
+    <label class="row"><input type="checkbox" id="l-areas" checked><span class="sw" style="border:1.5px dashed var(--muted);border-radius:2px;box-sizing:border-box"></span><span>Processed areas<small>Dashed gray: the areas listed below. Dashed orange: boxes found live.</small></span></label>
   </section>
 
   <section>
@@ -117,7 +126,9 @@ const STYLES = {
 };
 const $ = id => document.getElementById(id);
 const fmt = (v, d = 1) => v == null || isNaN(v) ? "n/a" : Number(v).toFixed(d);
+const esc = v => String(v == null ? "" : v).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const pct = v => v == null || isNaN(v) ? "n/a" : Math.round(100 * v) + "%";
+let STATIC = [], LIVE = null, LIVE_INFO = null, LIVE_AREAS = [], LIVE_FEATS = new Map(), JOB = null;
 let CUT = 0.45, POLES = null, MLY = null, TRUTH = null, BOX = null, STYLE_READY = false;
 const knox = AREAS.find(a => a.id.startsWith("knox")) || AREAS[0];
 const map = new maplibregl.Map({ container: "map", style: STYLES.dark, center: knox.center, zoom: 13.6, attributionControl: { compact: true }, maxZoom: 20 });
@@ -164,6 +175,8 @@ function addLayers() {
   map.addSource("mly", { type: "geojson", data: MLY || { type: "FeatureCollection", features: [] }, attribution: MLYATTR });
   map.addSource("ours", { type: "geojson", data: POLES, attribution: MLYATTR });
   map.addSource("box", { type: "geojson", data: boxFC() });
+  map.addSource("live-areas", { type: "geojson", data: liveAreasFC() });
+  map.addLayer({ id: "live-areas", type: "line", source: "live-areas", layout: { visibility: vis("l-areas") }, paint: { "line-color": "#f2a83b", "line-width": 1.2, "line-opacity": 0.7, "line-dasharray": [3, 2] } });
   map.addLayer({ id: "areas", type: "line", source: "areas", layout: { visibility: vis("l-areas") }, paint: { "line-color": "#98a4b3", "line-width": 1.2, "line-dasharray": [3, 2] } });
   // zoomed out (country or state view) the boxes are too small to see: show each area as a marker with its name
   map.addSource("area-pts", { type: "geojson", data: { type: "FeatureCollection", features: AREAS.map((a, i) => ({ type: "Feature", properties: { name: a.short, i },
@@ -190,7 +203,8 @@ function addLayers() {
 let STYLE_KEY = "dark";
 map.on("style.load", () => { STYLE_READY = true; addLayers(); });
 Promise.all(["poles", "mapillary", "truth"].map(n => fetch(`data/${n}.geojson`).then(r => r.json()).catch(() => null)))
-  .then(([p, m, t]) => { POLES = p; MLY = m; TRUTH = t; addLayers(); refresh(); });
+  .then(([p, m, t]) => { STATIC = p ? p.features : []; POLES = { type: "FeatureCollection", features: STATIC.slice() }; MLY = m || { type: "FeatureCollection", features: [] }; TRUTH = t;
+    addLayers(); refresh(); liveConnect(); });
 
 function setCut(v) {
   CUT = v; $("cutv").textContent = Math.round(100 * v) + "%";
@@ -198,7 +212,7 @@ function setCut(v) {
   refresh();
 }
 $("cut").addEventListener("input", e => setCut(Number(e.target.value) / 100));
-for (const [id, ls] of [["l-ours", ["ours"]], ["l-err", ["err"]], ["l-mly", ["mly"]], ["l-truth", ["truth"]], ["l-areas", ["areas", "areas-lbl", "area-pts"]]])
+for (const [id, ls] of [["l-ours", ["ours"]], ["l-err", ["err"]], ["l-mly", ["mly"]], ["l-truth", ["truth"]], ["l-areas", ["areas", "areas-lbl", "area-pts", "live-areas"]]])
   $(id).addEventListener("change", () => ls.forEach(l => map.getLayer(l) && map.setLayoutProperty(l, "visibility", vis(id))));
 for (const k of ["dark", "light", "sat"])
   $("b-" + k).addEventListener("click", () => { for (const j of ["dark", "light", "sat"]) $("b-" + j).setAttribute("aria-pressed", String(j === k)); STYLE_READY = false; map.setStyle(STYLES[k]); });
@@ -229,14 +243,18 @@ function boxInfo() {
   const mly = MLY ? MLY.features.map(f => f.geometry.coordinates).filter(c => inBox(c, BOX)) : [];
   const tr = TRUTH ? TRUTH.features.filter(f => f.properties.k === "u" && inBox(f.geometry.coordinates, BOX)) : [];
   const a = km2(BOX), s = score(shown().map(f => f.geometry.coordinates), BOX), m = score(mly, BOX);
-  const covered = AREAS.some(x => !(x.bbox[2] < BOX[0] || x.bbox[0] > BOX[2] || x.bbox[3] < BOX[1] || x.bbox[1] > BOX[3]));
+  const covered = AREAS.map(x => x.bbox).concat(LIVE_AREAS).some(b => !(b[2] < BOX[0] || b[0] > BOX[2] || b[3] < BOX[1] || b[1] > BOX[3]));
+  const cap = LIVE_INFO ? LIVE_INFO.max_area_km2 : 1;
   el.hidden = false;
   el.innerHTML = `<div class="kv"><span>Box area</span><span>${fmt(a, 2)} km²</span>
     <span>Our poles</span><span><b>${ours.length}</b> (${Math.round(ours.length / a)} per km²)</span>
     <span>Mapillary detections</span><span>${mly.length}</span>
     <span>Utility records</span><span>${TRUTH && tr.length ? tr.length : "none public here"}</span></div>` +
     (s ? `<div style="margin-top:6px">Within 10 m of a record: ours P ${pct(s.p)}, R ${pct(s.r)}, F1 ${fmt(s.f, 2)}; Mapillary P ${pct(m.p)}, R ${pct(m.r)}, F1 ${fmt(m.f, 2)}.</div>` : "") +
-    (covered ? "" : `<div class="note" style="margin-top:6px">This box is outside the processed areas. New areas run in the desktop app (about 2 to 4 minutes per km²) and can then be added here.</div>`);
+    (JOB ? "" : LIVE ? (a > cap ? `<div class="note" style="margin-top:6px">Live detection takes boxes up to ${cap} km². Draw a smaller box.</div>`
+        : `<div style="margin-top:8px"><button class="primary" id="run">${covered ? "Find poles here again" : "Find poles in this box"}</button>
+           <div class="note" style="margin-top:4px">About ${Math.max(1, Math.round(3 * a))} min. Works where Mapillary has street photos taken from cars.</div></div>`)
+      : (covered ? "" : `<div class="note" style="margin-top:6px">Live detection is offline right now (it runs on the project computer), so this box cannot be processed at the moment. The processed areas can still be browsed.</div>`));
 }
 let drawing = false, start = null;
 $("draw").addEventListener("click", () => { drawing = !drawing; $("draw").setAttribute("aria-pressed", String(drawing)); $("drawhint").hidden = !drawing; map.dragPan[drawing ? "disable" : "enable"](); });
@@ -245,16 +263,21 @@ map.on("mousedown", e => { if (!drawing) return; start = e.lngLat; });
 map.on("mousemove", e => { if (!drawing || !start) return;
   BOX = [Math.min(start.lng, e.lngLat.lng), Math.min(start.lat, e.lngLat.lat), Math.max(start.lng, e.lngLat.lng), Math.max(start.lat, e.lngLat.lat)];
   map.getSource("box") && map.getSource("box").setData(boxFC()); });
+map.on("touchstart", e => { if (!drawing) return; e.preventDefault(); start = e.lngLat; });
+map.on("touchmove", e => { if (!drawing || !start) return; e.preventDefault();
+  BOX = [Math.min(start.lng, e.lngLat.lng), Math.min(start.lat, e.lngLat.lat), Math.max(start.lng, e.lngLat.lng), Math.max(start.lat, e.lngLat.lat)];
+  map.getSource("box") && map.getSource("box").setData(boxFC()); });
+map.on("touchend", () => { if (!drawing || !start) return; start = null; drawing = false; $("draw").setAttribute("aria-pressed", "false"); $("drawhint").hidden = true; map.dragPan.enable(); boxInfo(); });
 map.on("mouseup", () => { if (!drawing || !start) return; start = null; drawing = false; $("draw").setAttribute("aria-pressed", "false"); $("drawhint").hidden = true; map.dragPan.enable(); boxInfo(); });
 
 // ---------- popups
 map.on("click", "ours", e => { if (drawing) return;
-  const p = e.features[0].properties, ids = (p.ids || "").split(",").filter(Boolean).slice(0, 5);
+  const p = e.features[0].properties, ids = String(p.ids || "").split(",").filter(x => /^\d+$/.test(x)).slice(0, 5);
   const links = ids.map((id, i) => `<a href="https://www.mapillary.com/app/?pKey=${id}" target="_blank" rel="noopener">${i + 1}</a>`).join(" · ");
   new maplibregl.Popup({ maxWidth: "300px" }).setLngLat(e.features[0].geometry.coordinates).setHTML(
-    `<b>Our pole</b><div class="kv"><span>Chance it is a real pole</span><span>${Math.round(100 * p.p)}%</span>
+    `<b>Our pole${p.a < 0 ? " (found live)" : ""}</b><div class="kv"><span>Chance it is a real pole</span><span>${Math.round(100 * p.p)}%</span>
      <span>Typical error</span><span>about ${fmt(p.e50)} m</span><span>90% within</span><span>${fmt(p.e90)} m</span>
-     <span>Seen in</span><span>${p.nv} photos</span><span>Photo years</span><span>${p.yrs || "n/a"}</span></div>
+     <span>Seen in</span><span>${esc(p.nv)} photos</span><span>Photo years</span><span>${esc(p.yrs) || "n/a"}</span></div>
      <div style="margin-top:6px">${links ? "Street photos: " + links : ""}</div>`).addTo(map); });
 map.on("click", "mly", e => { if (drawing) return;
   new maplibregl.Popup({ maxWidth: "270px" }).setLngLat(e.features[0].geometry.coordinates)
@@ -265,6 +288,93 @@ map.on("click", "truth", e => { if (drawing) return;
     .setHTML(`<b>Utility pole record</b><div class='note'>${p.src}. ${p.k === "u" ? "Utility pole (counts in scoring)" + (p.near ? "" : ", but more than 30 m from any photo, so not counted in recall") : "Type unclear in the records: left out of scoring"}.</div>`).addTo(map); });
 map.on("click", "area-pts", e => { const a = AREAS[e.features[0].properties.i]; map.fitBounds([[a.bbox[0], a.bbox[1]], [a.bbox[2], a.bbox[3]]], { padding: 30 }); });
 for (const l of ["ours", "mly", "truth", "area-pts"]) { map.on("mouseenter", l, () => { if (!drawing) map.getCanvas().style.cursor = "pointer"; }); map.on("mouseleave", l, () => map.getCanvas().style.cursor = ""); }
+
+// ---------- live detection: runs on the project computer, reached through a secure Cloudflare link that
+// scripts/start_live_link.ps1 writes to live.json. When that computer is off, the page is a view-only map.
+function liveAreasFC() { return { type: "FeatureCollection", features: LIVE_AREAS.map(b => ({ type: "Feature", properties: {},
+  geometry: { type: "Polygon", coordinates: [[[b[0], b[1]], [b[2], b[1]], [b[2], b[3]], [b[0], b[3]], [b[0], b[1]]]] } })) }; }
+const inStatic = c => AREAS.some(a => inBox(c, a.bbox));
+function toWeb(f) {
+  const p = f.properties, lat = f.geometry.coordinates[1];
+  return { type: "Feature", geometry: f.geometry, properties: { p: p.p_real == null ? 0.5 : p.p_real, e50: p.err50_m, e90: p.err90_m, nv: p.n_views, yrs: p.years,
+    ids: String(p.image_ids || "").split(",").slice(0, 5).join(","), r0: (p.err90_m || 0) / (156543.03 * Math.cos(lat * Math.PI / 180)), a: -1 } };
+}
+function addLive(feats) {
+  for (const f of feats) { const c = f.geometry.coordinates; if (inStatic(c)) continue;
+    LIVE_FEATS.set(f.properties.uid || c.join(","), toWeb(f)); }
+  POLES = { type: "FeatureCollection", features: STATIC.concat([...LIVE_FEATS.values()]) };
+  map.getSource("ours") && map.getSource("ours").setData(POLES);
+}
+function liveStatus(on, note) {
+  $("livestat").innerHTML = `<span class="dot${on ? " on" : ""}"></span><span>${on ? "Live detection is online" : "Live detection is offline"}${note ? `<small style="display:block;color:var(--muted)">${note}</small>` : ""}</span>`;
+}
+function okUrl(u) { return /^https:\/\/[a-z0-9-]+\.trycloudflare\.com\/?$/.test(u) || /^http:\/\/(127\.0\.0\.1|localhost):\d+\/?$/.test(u); }
+async function liveConnect() {
+  let url = new URLSearchParams(location.search).get("live");
+  if (!url) try { url = (await (await fetch("live.json?t=" + Date.now(), { cache: "no-store" })).json()).url; } catch (e) { url = null; }
+  if (!url || !okUrl(url)) { liveStatus(false, "It runs on the project computer, which is off right now. The processed areas can still be browsed."); boxInfo(); return; }
+  url = url.replace(/\/+$/, "");
+  try {
+    const ctl = new AbortController(); const t = setTimeout(() => ctl.abort(), 10000);
+    const j = await (await fetch(url + "/api/live", { signal: ctl.signal })).json(); clearTimeout(t);
+    if (!j.ok) throw new Error("not ready");
+    LIVE = url; LIVE_INFO = j;
+    liveStatus(true, `Draw a box (up to ${j.max_area_km2} km²) anywhere, then press "Find poles in this box". ${j.busy ? j.busy + " box(es) running now." : ""}`);
+    try { const fc = await (await fetch(LIVE + "/api/areas")).json();
+      LIVE_AREAS = fc.features.map(f => { const r = f.geometry.coordinates[0], xs = r.map(c => c[0]), ys = r.map(c => c[1]); return [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)]; })
+        .filter(b => !AREAS.some(a => b[0] >= a.bbox[0] - 1e-4 && b[2] <= a.bbox[2] + 1e-4 && b[1] >= a.bbox[1] - 1e-4 && b[3] <= a.bbox[3] + 1e-4));
+      map.getSource("live-areas") && map.getSource("live-areas").setData(liveAreasFC()); } catch (e) {}
+    loadLivePoles();
+  } catch (e) { liveStatus(false, "It runs on the project computer, which is off or not reachable right now. The processed areas can still be browsed."); }
+  boxInfo();
+}
+let liveTimer = null;
+function loadLivePoles() {
+  if (!LIVE || map.getZoom() < 12) return;
+  const b = map.getBounds(), bb = [b.getWest(), b.getSouth(), b.getEast(), b.getNorth()];
+  if (!LIVE_AREAS.some(a => !(a[2] < bb[0] || a[0] > bb[2] || a[3] < bb[1] || a[1] > bb[3]))) return;
+  fetch(`${LIVE}/api/poles?bbox=${bb.map(v => v.toFixed(6)).join(",")}&min_p=0.05&limit=20000`).then(r => r.json())
+    .then(j => { addLive(j.poles.features); refresh(); }).catch(() => {});
+}
+map.on("moveend", () => { clearTimeout(liveTimer); liveTimer = setTimeout(loadLivePoles, 400); });
+
+function runUI(j) {
+  const el = $("runbox"); el.hidden = false;
+  el.innerHTML = `<b>${j.status === "queued" ? "Waiting for the computer" : "Working"}: ${Math.round(100 * (j.progress || 0))}%</b><div class="bar"><div style="width:${Math.round(100 * (j.progress || 0))}%"></div></div><div class="note">${esc(j.message || "")}</div>`;
+}
+async function runLive() {
+  if (!LIVE || !BOX || JOB) return;
+  const bbox = BOX.slice();
+  JOB = { bbox }; boxInfo(); runUI({ status: "queued", progress: 0, message: "Sending the box ..." });
+  try {
+    const r = await fetch(LIVE + "/api/run", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ bbox, web: true }) });
+    const j = await r.json(); if (!r.ok) throw new Error(j.error || "The box could not be started.");
+    JOB = { id: j.job_id, bbox, fails: 0, t0: Date.now() }; pollJob();
+  } catch (e) { JOB = null; $("runbox").innerHTML = `<b>Not started</b><div class="note">${esc(e.message || e)}</div>`; boxInfo(); }
+}
+async function pollJob() {
+  let j;
+  try { j = await (await fetch(`${LIVE}/api/job/${JOB.id}`)).json(); JOB.fails = 0; }
+  catch (e) { if (++JOB.fails > 15) { JOB = null; $("runbox").innerHTML = "<b>Lost the connection</b><div class='note'>The project computer stopped answering. Please try again later.</div>"; boxInfo(); return; }
+    setTimeout(pollJob, 3000); return; }
+  if (j.status === "done") {
+    const s = j.summary || {}, id = JOB.id;
+    let n = 0;
+    if (j.poles) { n = j.poles.features.filter(f => (f.properties.p_real == null ? 1 : f.properties.p_real) >= CUT).length;
+      LIVE_FEATS.forEach((v, k) => { if (inBox(v.geometry.coordinates, j.bbox)) LIVE_FEATS.delete(k); });
+      addLive(j.poles.features.map((f, i) => ({ ...f, properties: { ...f.properties, uid: "job" + id + "_" + i } }))); }
+    if (j.baseline) { MLY.features = MLY.features.filter(f => !(f.properties.a < 0 && inBox(f.geometry.coordinates, j.bbox)))
+      .concat(j.baseline.features.map(f => ({ type: "Feature", geometry: f.geometry, properties: { a: -1 } }))); map.getSource("mly") && map.getSource("mly").setData(MLY); }
+    LIVE_AREAS.push(j.bbox); map.getSource("live-areas") && map.getSource("live-areas").setData(liveAreasFC());
+    $("runbox").innerHTML = `<b>Done in ${Math.round((Date.now() - JOB.t0) / 1000)} s</b><div class="note">${n} poles at the current setting, from ${esc(s.n_images)} street photos` +
+      `${s.years && s.years.length ? " (" + esc(s.years[0]) + " to " + esc(s.years[s.years.length - 1]) + ")" : ""}. ${s.n_images ? "" : "No car photos were found in this box. "}` +
+      `Turn on "Mapillary's automatic pole detections" to compare.</div>`;
+    JOB = null; refresh(); return;
+  }
+  if (j.status === "error") { JOB = null; $("runbox").innerHTML = `<b>Failed</b><div class="note">${esc(j.error)}</div>`; boxInfo(); return; }
+  runUI(j); setTimeout(pollJob, 2000);
+}
+$("boxinfo").addEventListener("click", e => { if (e.target.id === "run") runLive(); });
 </script>
 </body>
 </html>
