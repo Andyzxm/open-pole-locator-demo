@@ -78,9 +78,9 @@ button:disabled { opacity: 0.5; cursor: default; }
   </div>
 
   <section>
-    <h2>Which dots to show</h2>
+    <h2>How sure must a dot be?</h2>
     <div class="slider"><input type="range" id="cut" min="5" max="90" step="5" value="45" aria-label="Minimum chance of a real pole"><output id="cutv">45%</output></div>
-    <div class="note">Show dots whose chance of being a real pole is at least this. 45% is the tested setting (best balance). Lower finds more poles but adds more wrong dots; the accuracy table below updates as you move it.</div>
+    <div class="note">Every dot comes with a chance that it is a real utility pole (from a model trained on utility records). The map shows only dots at least this likely. <b>Higher</b>: fewer dots, almost all real poles, some poles missed. <b>Lower</b>: more dots, more poles found, more mistakes (5% shows nearly everything we found). 45% is the tested balance. <span id="cutn"></span></div>
   </section>
 
   <section>
@@ -118,7 +118,7 @@ button:disabled { opacity: 0.5; cursor: default; }
 
   <section class="note">
     <a class="btn" href="data/poles.geojson" download style="display:inline-block;margin-bottom:8px">Download all our dots (GeoJSON)</a><br>
-    Street-level photos, derived pole points and Mapillary detections © <a href="https://www.mapillary.com" target="_blank" rel="noopener">Mapillary</a> contributors, CC BY-SA 4.0. Utility records: Seattle City Light, Town of Apex, City of Newton open data. Base maps © OpenStreetMap contributors, OpenFreeMap. Built with Open Pole Locator (Apache 2.0), processed November 18, 2026.
+    Street-level photos, derived pole points and Mapillary detections © <a href="https://www.mapillary.com" target="_blank" rel="noopener">Mapillary</a> contributors, CC BY-SA 4.0. Utility records: Seattle City Light, Town of Apex, City of Newton open data. Base maps © OpenStreetMap contributors, OpenFreeMap. Built with Open Pole Locator (Apache 2.0), processed November 23, 2026.
   </section>
 </aside>
 <script>
@@ -137,8 +137,9 @@ const esc = v => String(v == null ? "" : v).replace(/[&<>"']/g, c => ({ "&": "&a
 const pct = v => v == null || isNaN(v) ? "n/a" : Math.round(100 * v) + "%";
 let STATIC = [], LIVE = null, LIVE_INFO = null, LIVE_AREAS = [], LIVE_FEATS = new Map(), JOB = null;
 let CUT = 0.45, POLES = null, MLY = null, TRUTH = null, BOX = null, STYLE_READY = false;
-const knox = AREAS.find(a => a.id.startsWith("knox")) || AREAS[0];
-const map = new maplibregl.Map({ container: "map", style: STYLES.dark, center: knox.center, zoom: 13.6, attributionControl: { compact: true }, maxZoom: 20 });
+// start on the whole contiguous U.S.; processed areas show as named markers (click one to zoom in)
+const map = new maplibregl.Map({ container: "map", style: STYLES.dark, bounds: [[-125, 24.5], [-66.5, 49.5]], fitBoundsOptions: { padding: 20 },
+  attributionControl: { compact: true }, maxZoom: 20 });
 map.addControl(new maplibregl.NavigationControl({ showCompass: false }), "top-right");
 map.addControl(new maplibregl.ScaleControl({ unit: "metric" }), "bottom-right");
 const vis = id => $(id).checked ? "visible" : "none";
@@ -211,10 +212,11 @@ let STYLE_KEY = "dark";
 map.on("style.load", () => { STYLE_READY = true; addLayers(); });
 Promise.all(["poles", "mapillary", "truth"].map(n => fetch(`data/${n}.geojson`).then(r => r.json()).catch(() => null)))
   .then(([p, m, t]) => { STATIC = p ? p.features : []; POLES = { type: "FeatureCollection", features: STATIC.slice() }; MLY = m || { type: "FeatureCollection", features: [] }; TRUTH = t;
-    addLayers(); refresh(); liveConnect(); });
+    addLayers(); refresh(); setCut(CUT); liveConnect(); });
 
 function setCut(v) {
   CUT = v; $("cutv").textContent = Math.round(100 * v) + "%";
+  if (POLES) $("cutn").textContent = `Now showing ${shown().length.toLocaleString()} of ${POLES.features.length.toLocaleString()} dots.`;
   for (const l of ["ours", "err"]) if (map.getLayer(l)) map.setFilter(l, [">=", ["get", "p"], CUT]);
   refresh();
 }
@@ -282,13 +284,37 @@ map.on("click", "ours", e => { if (drawing) return;
   const p = e.features[0].properties, ids = String(p.ids || "").split(",").filter(x => /^\d+$/.test(x)).slice(0, 5);
   const links = ids.map((id, i) => `<a href="https://www.mapillary.com/app/?pKey=${id}" target="_blank" rel="noopener">${i + 1}</a>`).join(" · ");
   const c = e.features[0].geometry.coordinates;
-  const pop = new maplibregl.Popup(LIVE ? { maxWidth: "400px", anchor: sideAnchor(c), offset: 14 } : { maxWidth: "300px" }).setLngLat(c).setHTML(
+  const pop = new maplibregl.Popup({ maxWidth: "400px", anchor: sideAnchor(c), offset: 14 }).setLngLat(c).setHTML(
     `<b>Our pole${p.a < 0 ? " (found live)" : ""}</b><div id="pv"></div><div class="kv"><span>Chance it is a real pole</span><span>${Math.round(100 * p.p)}%</span>
      <span>Typical error</span><span>about ${fmt(p.e50)} m</span><span>90% within</span><span>${fmt(p.e90)} m</span>
      <span>Seen in</span><span>${esc(p.nv)} photos</span><span>Photo years</span><span>${esc(p.yrs) || "n/a"}</span></div>
-     <div style="margin-top:6px">${links ? "Street photos: " + links : ""}</div>`).addTo(map);
-  if (LIVE && ids.length) photoViewer(pop.getElement().querySelector("#pv"), LIVE, ids.join(","), c);
-  else if (ids.length) pop.getElement().querySelector("#pv").innerHTML = '<div class="pv-msg">Photos with the detected box appear here while live detection is online.</div>'; });
+     <div style="margin-top:6px">${links ? "All its photos in Mapillary: " + links : ""}</div>`).addTo(map);
+  const el = pop.getElement().querySelector("#pv"), built = builtPhotos(p);
+  if (LIVE && ids.length) photoViewer(el, LIVE, ids.join(","), c, built);
+  else if (built.length) showPhotos(el, built);
+  else el.innerHTML = `<div class="pv-msg">${p.a < 0 ? "Photos of poles found live appear while live detection is online." : "No photo saved for this dot (its chance of being a pole is low)."}</div>`; });
+// photos cut when the site was built (scripts/build_web_demo.py): data/photos/<pid[:2]>/<pid>_<k>.jpg, clearest first
+function builtPhotos(p) {
+  const pid = String(p.pid || ""); if (!/^[0-9a-f]{12}$/.test(pid)) return [];
+  const ids = String(p.ids || "").split(",").filter(x => /^\d+$/.test(x));
+  return Array.from({ length: Math.min(Number(p.ph) || 0, 4) }, (_, k) => ({ src: `data/photos/${pid.slice(0, 2)}/${pid}_${k}.jpg`, cap: k === 0 ? "clearest view" : "another view" }));
+}
+// one photo at a time with arrows; items: [{src, cap, id?}]
+function showPhotos(el, items) {
+  let k = 0;
+  const show = () => {
+    const p = items[k], nx = items[(k + 1) % items.length], many = items.length > 1;
+    const img = `<img src="${p.src}" alt="Street photo with the detected pole in an orange box" onload="keepInView(this)">`;
+    el.innerHTML = `<div class="pv">${p.id ? `<a href="https://www.mapillary.com/app/?pKey=${p.id}" target="_blank" rel="noopener" title="Open this photo in Mapillary">${img}</a>` : img}
+      <div class="pv-bar"><button type="button" data-d="-1" aria-label="Previous photo"${many ? "" : " disabled"}>&#8249;</button>
+      <span>Photo ${k + 1} of ${items.length} &middot; ${p.cap}</span>
+      <button type="button" data-d="1" aria-label="Next photo"${many ? "" : " disabled"}>&#8250;</button></div>
+      <div class="pv-note">Orange box: the pole the detector found in this photo. Photo &copy; <a class="pv-link" href="https://www.mapillary.com" target="_blank" rel="noopener">Mapillary</a> contributors, CC BY-SA 4.0</div></div>`;
+    el.querySelectorAll("button[data-d]").forEach(b => b.onclick = ev => { ev.stopPropagation(); k = (k + Number(b.dataset.d) + items.length) % items.length; show(); });
+    if (many) new Image().src = nx.src;
+  };
+  show();
+}
 // a card beside the dot (left or right, whichever side has room); after the photo loads, pan the map so
 // the whole card is visible
 function sideAnchor(c) { return map.project(c).x < map.getContainer().clientWidth / 2 ? "left" : "right"; }
@@ -301,26 +327,16 @@ function keepInView(node) {
   if (dx || dy) map.panBy([dx, dy], { duration: 250 });
 }
 // ---------- pole photos: the street photos of a pole with its detection box drawn (server: /api/pole_photos)
-function photoViewer(el, base, ids, c) {
+function photoViewer(el, base, ids, c, fallback) {
   el.innerHTML = '<div class="pv-msg">Loading photos ...</div>';
-  const q = `ids=${encodeURIComponent(ids)}&lon=${c[0].toFixed(7)}&lat=${c[1].toFixed(7)}`;
-  fetch(`${base}/api/pole_photos?${q}`).then(r => r.json()).then(j => {
+  const pos = `lon=${c[0].toFixed(7)}&lat=${c[1].toFixed(7)}`;
+  const fail = msg => { if (fallback && fallback.length) showPhotos(el, fallback); else el.innerHTML = `<div class="pv-msg">${msg}</div>`; };
+  fetch(`${base}/api/pole_photos?ids=${encodeURIComponent(ids)}&${pos}`).then(r => r.json()).then(j => {
     const ph = (j.photos || []).filter(p => /^\d+$/.test(p.id));
-    if (!ph.length) { el.innerHTML = '<div class="pv-msg">No saved photo shows this pole.</div>'; return; }
-    let k = 0;
-    const show = () => {
-      const p = ph[k], nx = ph[(k + 1) % ph.length];
-      el.innerHTML = `<div class="pv"><a href="https://www.mapillary.com/app/?pKey=${p.id}" target="_blank" rel="noopener" title="Open this photo in Mapillary">
-        <img src="${base}/api/pole_photo/${p.id}.jpg?lon=${c[0].toFixed(7)}&lat=${c[1].toFixed(7)}" alt="Street photo with the detected pole in an orange box" onload="keepInView(this)"></a>
-        <div class="pv-bar"><button type="button" data-d="-1" aria-label="Previous photo"${ph.length < 2 ? " disabled" : ""}>&#8249;</button>
-        <span>${k + 1} of ${ph.length} &middot; ${p.date || ""} &middot; ${p.pano ? "360&deg; photo" : "photo"} &middot; ${Math.round(p.dist_m)} m away</span>
-        <button type="button" data-d="1" aria-label="Next photo"${ph.length < 2 ? " disabled" : ""}>&#8250;</button></div>
-        <div class="pv-note">Orange box: what the detector found. Click the photo to open it in Mapillary. Photo &copy; <a class="pv-link" href="https://www.mapillary.com" target="_blank" rel="noopener">Mapillary</a>, CC BY-SA 4.0</div></div>`;
-      el.querySelectorAll("button[data-d]").forEach(b => b.onclick = ev => { ev.stopPropagation(); k = (k + Number(b.dataset.d) + ph.length) % ph.length; show(); });
-      if (ph.length > 1) new Image().src = `${base}/api/pole_photo/${nx.id}.jpg?lon=${c[0].toFixed(7)}&lat=${c[1].toFixed(7)}`;
-    };
-    show();
-  }).catch(() => { el.innerHTML = '<div class="pv-msg">Photos are not available right now.</div>'; });
+    if (!ph.length) return fail("No saved photo shows this pole.");
+    showPhotos(el, ph.map(p => ({ id: p.id, src: `${base}/api/pole_photo/${p.id}.jpg?${pos}`,
+      cap: `${p.date || ""} &middot; ${p.pano ? "360&deg; photo" : "photo"} &middot; ${Math.round(p.dist_m)} m away` })));
+  }).catch(() => fail("Photos are not available right now."));
 }
 
 map.on("click", "mly", e => { if (drawing) return;
@@ -356,7 +372,9 @@ function okUrl(u) { return /^https:\/\/[a-z0-9-]+\.trycloudflare\.com\/?$/.test(
 async function liveConnect() {
   let url = new URLSearchParams(location.search).get("live");
   if (!url) try { url = (await (await fetch("live.json?t=" + Date.now(), { cache: "no-store" })).json()).url; } catch (e) { url = null; }
-  if (!url || !okUrl(url)) { liveStatus(false, "It runs on the project computer, which is off right now. The processed areas can still be browsed."); boxInfo(); return; }
+  if (url === "same-origin") url = location.origin;        // the page is served by the pole map server itself
+  else if (url && !okUrl(url)) url = null;
+  if (!url) { liveStatus(false, "It runs on the project computer, which is off right now. The processed areas can still be browsed."); boxInfo(); return; }
   url = url.replace(/\/+$/, "");
   try {
     const ctl = new AbortController(); const t = setTimeout(() => ctl.abort(), 10000);
