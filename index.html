@@ -81,6 +81,8 @@ button:disabled { opacity: 0.5; cursor: default; }
     <h2>How sure must a dot be?</h2>
     <div class="slider"><input type="range" id="cut" min="5" max="90" step="5" value="45" aria-label="Minimum chance of a real pole"><output id="cutv">45%</output></div>
     <div class="note">Every dot comes with a chance that it is a real utility pole (from a model trained on utility records). The map shows only dots at least this likely. <b>Higher</b>: fewer dots, almost all real poles, some poles missed. <b>Lower</b>: more dots, more poles found, more mistakes (5% shows nearly everything we found). 45% is the tested balance. <span id="cutn"></span></div>
+    <div class="btns" style="margin-top:8px"><button id="p-clean" aria-pressed="true">Clean map (45%)</button><button id="p-more" aria-pressed="false">Find more poles (20%)</button></div>
+    <div class="note" style="margin-top:4px">Tested on areas with utility records (not used to build the model): at 45%, about 7 in 10 dots are real poles and about half of the recorded poles near street photos get a dot. At 20%, about 7 in 10 recorded poles get a dot, but only about half of the dots are real poles.</div>
   </section>
 
   <section>
@@ -136,7 +138,7 @@ const fmt = (v, d = 1) => v == null || isNaN(v) ? "n/a" : Number(v).toFixed(d);
 const esc = v => String(v == null ? "" : v).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const pct = v => v == null || isNaN(v) ? "n/a" : Math.round(100 * v) + "%";
 let STATIC = [], LIVE = null, LIVE_INFO = null, LIVE_AREAS = [], LIVE_FEATS = new Map(), JOB = null;
-let CUT = 0.45, POLES = null, MLY = null, TRUTH = null, BOX = null, STYLE_READY = false;
+let MORE = false, CUT = 0.45, POLES = null, MLY = null, TRUTH = null, BOX = null, STYLE_READY = false;
 // start on the whole contiguous U.S.; processed areas show as named markers (click one to zoom in)
 const map = new maplibregl.Map({ container: "map", style: STYLES.dark, bounds: [[-125, 24.5], [-66.5, 49.5]], fitBoundsOptions: { padding: 20 },
   attributionControl: { compact: true }, maxZoom: 20 });
@@ -216,11 +218,15 @@ Promise.all(["poles", "mapillary", "truth"].map(n => fetch(`data/${n}.geojson`).
 
 function setCut(v) {
   CUT = v; $("cutv").textContent = Math.round(100 * v) + "%";
+  $("p-clean").setAttribute("aria-pressed", String(Math.abs(v - 0.45) < 0.01)); $("p-more").setAttribute("aria-pressed", String(Math.abs(v - 0.20) < 0.01));
   if (POLES) $("cutn").textContent = `Now showing ${shown().length.toLocaleString()} of ${POLES.features.length.toLocaleString()} dots.`;
   for (const l of ["ours", "err"]) if (map.getLayer(l)) map.setFilter(l, [">=", ["get", "p"], CUT]);
   refresh();
 }
 $("cut").addEventListener("input", e => setCut(Number(e.target.value) / 100));
+function preset(v) { $("cut").value = Math.round(100 * v); setCut(v); }
+$("p-clean").addEventListener("click", () => preset(0.45));
+$("p-more").addEventListener("click", () => preset(0.20));
 for (const [id, ls] of [["l-ours", ["ours"]], ["l-err", ["err"]], ["l-mly", ["mly"]], ["l-truth", ["truth"]], ["l-areas", ["areas", "areas-lbl", "area-pts", "live-areas"]]])
   $(id).addEventListener("change", () => ls.forEach(l => map.getLayer(l) && map.setLayoutProperty(l, "visibility", vis(id))));
 for (const k of ["dark", "light", "sat"])
@@ -262,7 +268,8 @@ function boxInfo() {
     (s ? `<div style="margin-top:6px">Within 10 m of a record: ours P ${pct(s.p)}, R ${pct(s.r)}, F1 ${fmt(s.f, 2)}; Mapillary P ${pct(m.p)}, R ${pct(m.r)}, F1 ${fmt(m.f, 2)}.</div>` : "") +
     (JOB ? "" : LIVE ? (a > cap ? `<div class="note" style="margin-top:6px">Live detection takes boxes up to ${cap} km². Draw a smaller box.</div>`
         : `<div style="margin-top:8px"><button class="primary" id="run">${covered ? "Find poles here again" : "Find poles in this box"}</button>
-           <div class="note" style="margin-top:4px">About ${Math.max(1, Math.round(3 * a))} min. Works where Mapillary has street photos taken from cars.</div></div>`)
+           ${LIVE_INFO && LIVE_INFO.more_available ? `<label class="row" style="margin-top:6px"><input type="checkbox" id="more" ${MORE ? "checked" : ""}><span>Use more street photos<small>Up to 8 drives per street instead of 4: a few more poles found, mostly where Mapillary has no 360° photos; about 1.5 times slower.</small></span></label>` : ""}
+           <div class="note" style="margin-top:4px">About ${Math.max(1, Math.round((MORE ? 4.5 : 3) * a))} min. Works where Mapillary has street photos taken from cars.</div></div>`)
       : (covered ? "" : `<div class="note" style="margin-top:6px">Live detection is offline right now (it runs on the project computer), so this box cannot be processed at the moment. The processed areas can still be browsed.</div>`));
 }
 let drawing = false, start = null;
@@ -409,7 +416,7 @@ async function runLive() {
   const bbox = BOX.slice();
   JOB = { bbox }; boxInfo(); runUI({ status: "queued", progress: 0, message: "Sending the box ..." });
   try {
-    const r = await fetch(LIVE + "/api/run", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ bbox, web: true }) });
+    const r = await fetch(LIVE + "/api/run", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ bbox, web: true, more: MORE && !!(LIVE_INFO && LIVE_INFO.more_available) }) });
     const j = await r.json(); if (!r.ok) throw new Error(j.error || "The box could not be started.");
     JOB = { id: j.job_id, bbox, fails: 0, t0: Date.now() }; pollJob();
   } catch (e) { JOB = null; $("runbox").innerHTML = `<b>Not started</b><div class="note">${esc(e.message || e)}</div>`; boxInfo(); }
@@ -426,7 +433,7 @@ async function pollJob() {
       LIVE_FEATS.forEach((v, k) => { if (inBox(v.geometry.coordinates, j.bbox)) LIVE_FEATS.delete(k); });
       addLive(j.poles.features.map((f, i) => ({ ...f, properties: { ...f.properties, uid: "job" + id + "_" + i } }))); }
     if (j.baseline) { MLY.features = MLY.features.filter(f => !(f.properties.a < 0 && inBox(f.geometry.coordinates, j.bbox)))
-      .concat(j.baseline.features.map(f => ({ type: "Feature", geometry: f.geometry, properties: { a: -1 } }))); map.getSource("mly") && map.getSource("mly").setData(MLY); }
+      .concat(j.baseline.features.filter(f => !inStatic(f.geometry.coordinates)).map(f => ({ type: "Feature", geometry: f.geometry, properties: { a: -1 } }))); map.getSource("mly") && map.getSource("mly").setData(MLY); }
     LIVE_AREAS.push(j.bbox); map.getSource("live-areas") && map.getSource("live-areas").setData(liveAreasFC());
     $("runbox").innerHTML = `<b>Done in ${Math.round((Date.now() - JOB.t0) / 1000)} s</b><div class="note">${n} poles at the current setting, from ${esc(s.n_images)} street photos` +
       `${s.years && s.years.length ? " (" + esc(s.years[0]) + " to " + esc(s.years[s.years.length - 1]) + ")" : ""}. ${s.n_images ? "" : "No car photos were found in this box. "}` +
@@ -437,6 +444,7 @@ async function pollJob() {
   runUI(j); setTimeout(pollJob, 2000);
 }
 $("boxinfo").addEventListener("click", e => { if (e.target.id === "run") runLive(); });
+$("boxinfo").addEventListener("change", e => { if (e.target.id === "more") { MORE = e.target.checked; boxInfo(); } });
 </script>
 </body>
 </html>
